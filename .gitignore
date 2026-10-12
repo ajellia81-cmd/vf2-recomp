@@ -1,0 +1,7 @@
+# nothing from the game: bring your own MAME "vf2" set
+roms/
+refs/
+build/
+*.zip
+*.bin
+.DS_Store

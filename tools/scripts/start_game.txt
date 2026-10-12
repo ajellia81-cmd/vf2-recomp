@@ -1,0 +1,24 @@
+# Coin up and start a one-player game from attract mode, then sit through the character select
+# and the start of the first round (the game picks for the player when the timer runs out).
+at 1000
+press coin1 6        # two coins a credit, as the board's settings come
+wait 20
+press coin1 6
+wait 60
+press start1 6
+wait 60
+shot select
+wait 300
+press p1right 4      # move the cursor one fighter to the right
+wait 30
+press p1punch 4      # and choose
+wait 300
+shot vs
+wait 600
+shot fight
+wait 300
+press p1punch 4
+wait 10
+press p1kick 4
+wait 286
+shot fight2
