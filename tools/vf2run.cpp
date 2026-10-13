@@ -15,6 +15,11 @@
 //                        sends it, each SCSP key-on with its slot's settings, and every 1/4 s
 //                        each slot's energy straight out (direct) and into the DSP, and the DSP's
 //                        output energy
+//     --voice-log file   each voice the sound board starts (implies --sound): when, its slot, the
+//                        sound program's channel (its table's entry; -1 none, -2 not started by the
+//                        program's voice start) and note, its group (0 music, 1 effects), sample
+//                        address, TL, DISDL, IMXL, ISEL, its energy out direct and into the DSP
+//                        until the slot's next voice, LPCTL and RR. Not with --scsp-log
 //     --dump a,b         write the RAMs and registers at the end of these frames (fNNNNN_*), for
 //                        tools/compare.py against tools/mame_snap.sh's
 //     --frames-log       one line per frame: frame, pc, irq counts, a hash of work RAM
@@ -119,7 +124,7 @@ int main(int argc, char **argv)
 	int culling = -1;
 	bool backdrop_filter = false;
 	std::string backgrounds;
-	std::string wav_path, raw_path, snd_trace_path, scsp_log_path;
+	std::string wav_path, raw_path, snd_trace_path, scsp_log_path, voice_log_path;
 	int music = 100, effects = 100;
 	float level = 1;
 	struct knockout { int player; uint64_t from, to; };
@@ -134,6 +139,7 @@ int main(int argc, char **argv)
 		else if (a == "--tgp-trace") tgp_trace_path = next();
 		else if (a == "--68k-trace") { snd_trace_path = next(); sound = true; }
 		else if (a == "--scsp-log") { scsp_log_path = next(); sound = true; }
+		else if (a == "--voice-log") { voice_log_path = next(); sound = true; }
 		else if (a == "--music") music = atoi(next());
 		else if (a == "--effects") effects = atoi(next());
 		else if (a == "--level") level = float(atof(next()));
@@ -331,6 +337,32 @@ int main(int argc, char **argv)
 				k.sample / 44100.0, m.scsp().slot_group(k.slot) ? "effects" : "music", k.slot, k.sa, k.lsa, k.lea, k.pcm8b ? "8b" : "16", k.lpctl, k.tl, k.disdl, k.dipan, k.isel, k.imxl, k.sdir, k.oct, k.fns, k.ar, k.d1r, k.d2r, k.rr, k.dl, k.eghold, k.krs, k.lpslnk);
 		};
 	}
+	// --voice-log: each voice (key-on) with what the sound program started it for and its energy
+	struct voice { double t0, t1; int slot, entry, note, group; u32 sa; int tl, disdl, imxl, isel, efsdl, lpctl, rr; double direct, dsp; };
+	std::vector<voice> voices;
+	int voice_now[32], pend_entry[32], pend_note[32];
+	std::fill(std::begin(voice_now), std::end(voice_now), -1);
+	std::fill(std::begin(pend_entry), std::end(pend_entry), -2);
+	std::fill(std::begin(pend_note), std::end(pend_note), -1);
+	const bool voice_log = !voice_log_path.empty() && !scsp_log;
+	if (voice_log) {
+		m.scsp().m_probe = true;
+		m.on_68k_scsp_write = [&](u32 o, u16, u16) {
+			m68000_device &c = m.snd_cpu();
+			if (c.pc() == 0x600a96 && o < 0x400 && (o & 0x1f) == 0) {
+				const u32 a0 = c.reg(8);
+				pend_entry[o >> 5] = a0 >= 0x4000 && a0 < 0x4200 ? int((a0 - 0x4000) >> 4) : -1;
+				pend_note[o >> 5] = int(c.reg(2) & 0xff);
+			}
+		};
+		m.scsp().on_key_on = [&](const scsp_device::key_on &k) {
+			const double t = k.sample / 44100.0;
+			if (voice_now[k.slot] >= 0) voices[voice_now[k.slot]].t1 = t;
+			voice_now[k.slot] = int(voices.size());
+			voices.push_back(voice{ t, -1, k.slot, pend_entry[k.slot], pend_note[k.slot], m.scsp().slot_group(k.slot), k.sa, k.tl, k.disdl, k.imxl, k.isel, 0, k.lpctl, k.rr, 0, 0 });
+			pend_entry[k.slot] = -2;   // -2: started without passing the sound program's voice start
+		};
+	}
 	auto t0 = std::chrono::steady_clock::now();
 	for (uint64_t f = 0; f < frames; f++) {
 		tracing = (trace || tgp_trace || snd_trace) && (trace_frames.empty() || trace_frames.count(f));
@@ -367,6 +399,13 @@ int main(int argc, char **argv)
 			std::fill(std::begin(c.m_probe_dsp_in), std::end(c.m_probe_dsp_in), 0.0);
 			c.m_probe_efreg = 0;
 			scsp_log_next = m.scsp_samples() + 44100 / 4;
+		}
+		if (voice_log) {
+			scsp_device &c = m.scsp();
+			for (int i = 0; i < 32; i++) {
+				if (voice_now[i] >= 0) { voices[voice_now[i]].direct += c.m_probe_direct[i]; voices[voice_now[i]].dsp += c.m_probe_dsp_in[i]; }
+				c.m_probe_direct[i] = c.m_probe_dsp_in[i] = 0;
+			}
 		}
 		if (!wav_path.empty()) wav.insert(wav.end(), m.m_audio_out.begin(), m.m_audio_out.end());
 		m.m_audio_out.clear();
@@ -443,6 +482,15 @@ int main(int argc, char **argv)
 		for (int i = 0; i < 32; i++) fprintf(scsp_log, "dsp madrs %d %u\n", i, d.MADRS[i]);
 		for (int i = 0; i < 128; i++) fprintf(scsp_log, "dsp mpro %d %04x %04x %04x %04x\n", i, d.MPRO[i * 4], d.MPRO[i * 4 + 1], d.MPRO[i * 4 + 2], d.MPRO[i * 4 + 3]);
 		fclose(scsp_log);
+	}
+	if (voice_log) {
+		FILE *o = fopen(voice_log_path.c_str(), "w");
+		if (o) {
+			fprintf(o, "t0 t1 slot entry note group sa tl disdl imxl isel direct dsp lpctl rr\n");
+			for (const voice &v : voices)
+				fprintf(o, "%.4f %.4f %d %d %d %d %05x %d %d %d %d %.6g %.6g %d %d\n", v.t0, v.t1 < 0 ? m.scsp_samples() / 44100.0 : v.t1, v.slot, v.entry, v.note, v.group, v.sa, v.tl, v.disdl, v.imxl, v.isel, v.direct, v.dsp, v.lpctl, v.rr);
+			fclose(o);
+		}
 	}
 	if (!wav_path.empty() && !write_wav(wav_path, wav, model2a::SOUND_RATE)) fprintf(stderr, "couldn't write %s\n", wav_path.c_str());
 	if (!raw_path.empty()) {

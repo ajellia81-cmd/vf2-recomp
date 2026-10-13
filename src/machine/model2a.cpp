@@ -2908,24 +2908,24 @@ void model2a::sound_reset()
 // Music or effects, for the host's two volumes. VF2's sound program starts each voice from one
 // place, 0x600a96 (`move.b #$10,(A5,D4.w)`: the slot's KYONEX with its key bit clear, before it
 // sets it up and keys it on), with A0 at the channel it plays for (a 16-byte entry of its channel
-// table at 0x4000) and the note in D2's low byte. The entry's first byte has bit 0 clear for the
-// tracks of its own sequencer (the music, entries 0-9) and set for the channels the main board
-// plays on directly (entries 10 and up): the hits and swishes (MIDI channel 14's notes), the
-// announcer and the fighters' voices (channel 13's and 11's commands), and the stage's
-// background: channel 13's notes 0x20 and up (0x27-0x2c, behind several stages) and channel 14's
-// notes 0x22, 0x28 and 0x29, heard only on the night stage. 0x22 is its thunder: a 3-second roll
-// about a second after each lightning flash, every 6-7 s, played at TL 2, so in the game's mix it
-// sits about 2 dB under the music and 8 dB over a typical hit. 0x28 is a lower rumble and 0x29 a
-// quiet one. The background goes with the music: turning the music down turns it down too, as
-// the game keeps them together. Anything else counts as music.
+// table at 0x4000) and the note in D2's low byte. Every voice the game plays starts there. The
+// entry's first byte has bit 0 clear for the tracks of its own sequencer (the music, entries 0-9)
+// and set for the channels the main board plays on directly (entries 10 and up): the winner's
+// line (10), the fighters' voices (11), the announcer (13's notes under 0x20, 15, 16), the
+// crowd (13's notes 0x20 and up: a roar at a big hit, a knockdown, a KO and its replay, the
+// WINNER screen; at the level of a hit in the game's mix), and the hits and swishes (14). One
+// exception goes with the music: the night stage's weather, channel 14's notes 0x22, 0x28 and
+// 0x29. 0x22 is its thunder: a 3-second roll about a second after each lightning flash, every
+// 6-7 s, played at TL 2, so in the game's mix it sits about 2 dB under the music and 12 dB over a
+// typical hit; 0x28 is a lower rumble and 0x29 a quiet one. Turning the music down turns it down
+// too, as the game keeps it with the music.
 int model2a::voice_group() const
 {
 	const u32 a0 = m_68k->reg(8);
 	if (a0 < 0x4000 || a0 >= 0x4200) return 0;
 	if (!((m_soundram[a0 >> 1] >> 8) & 1)) return 0;   // the sequencer: music
 	const u32 entry = (a0 - 0x4000) >> 4, note = m_68k->reg(2) & 0xff;
-	if (entry == 13 && note >= 0x20) return 0;   // the stage's background
-	if (entry == 14 && (note == 0x22 || note == 0x28 || note == 0x29)) return 0;   // the night stage's thunder
+	if (entry == 14 && (note == 0x22 || note == 0x28 || note == 0x29)) return 0;   // the night stage's weather
 	return 1;
 }
 

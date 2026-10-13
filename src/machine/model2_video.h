@@ -242,6 +242,7 @@ private:
 	void smooth_record_end();
 	void smooth_pair(const smooth_rec &a, const smooth_rec &b);
 	void repair_by_camera(const smooth_rec &a, const smooth_rec &b);
+	void pair_still(const smooth_rec &a, const smooth_rec &b, std::vector<char> &still);   // what sat still in the world (still[k]) paired by the camera's move
 	// the camera's move from a to b fitted to the paired objects' places (rigid, least squares): false if too few
 	bool fit_camera(const smooth_rec &a, const smooth_rec &b, double R[3][3], double T[3]) const;
 	void replay_into(const moment &mo, std::vector<drawn_poly> &drawn);

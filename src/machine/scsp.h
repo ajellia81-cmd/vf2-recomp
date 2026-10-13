@@ -9,6 +9,7 @@
 // for the MIDI link the Model 2 main board talks to the sound board through.
 #pragma once
 #include "scspdsp.h"
+#include <cmath>
 #include <functional>
 #include <vector>
 
@@ -124,6 +125,13 @@ private:
 
 	float m_group_gain[GROUPS] = { 1, 1 };
 	bool m_group_gains = false;   // any gain not 1
+	// The effects' leveller, on while the groups have their own volumes (with the music turned
+	// down, nothing masks the effects' own range, 16 dB from a jab to a KO's last hit): above
+	// FX_THRESHOLD (their power, as the board mixes them, before their volume) it takes the
+	// effects down at FX_RATIO, quickly (5 ms) and back over a quarter of a second
+	static constexpr float FX_THRESHOLD = 0.0015849f, FX_RATIO = 3;   // -28 dBFS
+	static inline const float FX_ATTACK = std::exp(-1.0f / (0.005f * 44100)), FX_RELEASE = std::exp(-1.0f / (0.25f * 44100));
+	float m_fx_env = 0, m_fx_level = 1;
 	u8 m_slot_group[32] = {}, m_next_group[32] = {};
 	u32 m_clock;
 	u32 clock() const { return m_clock; }

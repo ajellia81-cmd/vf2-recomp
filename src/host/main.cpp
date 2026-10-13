@@ -30,9 +30,11 @@
 // --music and --effects (0-100) set the volumes of the music and of the effects and voices. VF2
 // plays its music through the SCSP's effect DSP (reverb) with many voices at once, and its hits
 // and voices dry: in the game's own mix, as MAME's SCSP makes it (and we do, sample for sample),
-// the music is about 10 dB over the effects. The default, music 30 and effects 100, puts the
+// the music is about 13 dB over the effects. The default, music 20 and effects 100, puts the
 // hits and the announcer back over the music; --music 100 --effects 100 is the game's own mix.
-// The stage's background sounds (the night stage's thunder) go with the music, as in the game.
+// The night stage's thunder goes with the music, as in the game. With the volumes apart, a
+// leveller evens out the effects (src/machine/scsp.h: a KO's last hit or a roar comes down to a
+// few dB over a jab, where the game has them 12 dB apart under its louder music).
 // --volume (0-100, default 100) is the overall level. The board's output peaks well under full
 // scale, more so with the music down, so the host raises it by LEVEL (at 100), with a limiter
 // that keeps the loudest moments from clipping.
@@ -352,7 +354,7 @@ uint64_t fnv(const void *p, size_t n, uint64_t h = 1469598103934665603ull)
 // scale 0: none chosen yet (the one that fits the window).
 struct settings
 {
-	int scale = 0, aspect = 0, volume = 100, music = 30, effects = 100, aa = 1, filter = 0, ring = 0;
+	int scale = 0, aspect = 0, volume = 100, music = 20, effects = 100, aa = 1, filter = 0, ring = 0;
 	int pipelined_at = 0;
 	int arcade_coin = -2;   // the arcade way's coin setting, kept while the PC way has FREE PLAY in its place (-1: none to give back; -2: none kept yet)   // the render scale this machine needed pipelining at (the governor's, kept: a start there starts pipelined)
 	bool fullscreen = false, timings = false, arcade = false, smooth_bg = false, show_fps = false, smooth = true;
@@ -2111,9 +2113,16 @@ int main(int argc, char **argv)
 			// Judged on the window's ordinary passes only (gov), and only when they're most of it: a
 			// window taken up by scene changes says nothing either way (its streaks stay as they were)
 			const double gsecs = double(gov.time) / 1e9;
-			const bool judged = !load.first && !unseen && !stopped && gsecs >= secs * 0.5 && t >= gov_from;
+			// A machine that can't draw a picture a frame runs two frames a pass and slips the rest of
+			// the clock (pass_note's "slip"): each of those passes counts as a scene change's, so its
+			// ordinary passes never filled half a window and nothing was judged (a player at 2x with
+			// antialiasing 2x: 28 pictures a second at 97% busy for minutes, the governor untouched).
+			// So a whole window, nothing held in it, over 90% busy and short of pictures, is judged
+			// too, as vf1-recomp judges its windows: short.
+			const bool steady_short = !load.first && !unseen && !stopped && t >= gov_from && pace.held == 0 && busy > 0.9 && shown_fps < enough;
+			const bool judged = (!load.first && !unseen && !stopped && gsecs >= secs * 0.5 && t >= gov_from) || steady_short;
 			const double gfps = gsecs > 0 ? gov.frames / gsecs : 0, gshown = gsecs > 0 ? gov.pictures / gsecs : 0, gbusy = gsecs > 0 ? double(gov.work) / double(gov.time) : 0;
-			const bool slow = judged && (gfps < 56.5 || gshown < enough) && gbusy > 0.6;
+			const bool slow = steady_short || (judged && (gfps < 56.5 || gshown < enough) && gbusy > 0.6);
 			const bool over = judged && (gbusy > 0.9 || (gov.starved > 0 && gbusy > 0.6));
 			// Pipelining: on when running a frame and drawing its pictures takes over 85% of a frame's
 			// time (each picture then goes up a pass later: a frame, or with smooth motion a refresh of

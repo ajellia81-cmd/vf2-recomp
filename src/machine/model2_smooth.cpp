@@ -182,6 +182,21 @@ void model2_video::smooth_pair(const smooth_rec &a, const smooth_rec &b)
 			return (pb[9] - o[0]) * (pb[9] - o[0]) + (pb[10] - o[1]) * (pb[10] - o[1]) + (pb[11] - o[2]) * (pb[11] - o[2]);
 		};
 		auto depth2 = [&](int q, size_t k) { const float d = std::max({ std::fabs(a.objects[q].m[11]), std::fabs(b.objects[k].m[11]), 1.0f }); return d * d; };
+		// (its very place: after the fitted move, or, when the camera held still (a quarter of the
+		// objects, eight at least, where they were within a thousandth of their depth), where it was,
+		// whichever is nearer. A fit thrown off by the pairs it's made from moves a camera that held
+		// still: Jeffry's beach in a 1P game, its row of bushes each drawn as another's swaying shape
+		// a frame before, the order's pairs across the row (and a fighter in the air) fitted as a turn
+		// or a shift, and a bush in its very place looked a tenth of a unit or more off it. It kept
+		// its model's partner in the next bush's place and the picture between the frames drew it
+		// halfway there: a bush jumping aside for a picture, every few seconds. Only for finding one
+		// in its very place: whether a partner is away from its place still goes by the fit)
+		size_t still_n = 0;
+		for (size_t k = 0; k < nb; k++)
+			for (size_t q = 0; q < na; q++)
+				if (d2(int(q), k) < 1e-6f * depth2(int(q), k)) { still_n++; break; }
+		const bool still = still_n >= 8 && still_n * 4 >= nb;
+		auto dv = [&](int q, size_t k) { return still ? std::min(dp(q, k), d2(q, k)) : dp(q, k); };
 		auto own = [&](size_t k) { return m_pair[k] >= 0 && a.objects[m_pair[k]].oba == b.objects[k].oba; };
 		for (size_t k = 0; k < nb; k++) {
 			if (own(k)) continue;
@@ -208,7 +223,7 @@ void model2_video::smooth_pair(const smooth_rec &a, const smooth_rec &b)
 		// in its place like one without. Jeffry's beach: a row of bushes, each drawn as one of its
 		// swaying shapes from frame to frame, so a bush's model is the next one's a frame before and
 		// the order put each against its neighbour, the pictures between drawing it halfway there)
-		auto in_place = [&](size_t k) { for (size_t q = 0; q < na; q++) if (dp(int(q), k) < 2.5e-5f * depth2(int(q), k)) return true; return false; };
+		auto in_place = [&](size_t k) { for (size_t q = 0; q < na; q++) if (dv(int(q), k) < 2.5e-5f * depth2(int(q), k)) return true; return false; };
 		std::vector<int> let_go;
 		for (size_t k = 0; k < nb; k++)
 			if (m_pair[k] >= 0 && dp(m_pair[k], k) >= 0.01f * depth2(m_pair[k], k) && (!own(k) || in_place(k))) let_go.push_back(int(k));
@@ -219,7 +234,7 @@ void model2_video::smooth_pair(const smooth_rec &a, const smooth_rec &b)
 			float bd = 0;
 			for (size_t q = 0; q < na; q++)
 				if (holder[q] < 0) {
-					const float d = dp(int(q), k);
+					const float d = dv(int(q), k);
 					if (d < 1e-4f * depth2(int(q), k) && (best < 0 || d < bd)) best = int(q), bd = d;
 				}
 			if (best >= 0) { m_pair[k] = best; holder[best] = int(k); m_repaired++; }
@@ -231,11 +246,17 @@ void model2_video::smooth_pair(const smooth_rec &a, const smooth_rec &b)
 		}
 	}
 	repair_by_camera(a, b);
-	int jumps = 0, paired = 0;
+	std::vector<char> still;
+	pair_still(a, b, still);
+	// Then the jumps: an object that moved far (over 30% of its depth) or turned sharply in a frame.
+	// What sat still in the world moved only as the camera did, and is blended as the camera's move
+	// is, all of it alike, however near the camera (a palm beside it swinging past as the camera
+	// turns), unless most of it jumped: the camera itself did (a cut).
+	std::vector<char> jump(nb, 0);   // 1 moved, 2 only turned
+	int still_n = 0, still_jumps = 0;
 	for (size_t k = 0; k < nb; k++) {
 		if (m_pair[k] < 0) continue;
 		const float *pa = a.objects[m_pair[k]].m, *pb = b.objects[k].m;
-		paired++;
 		const float dx = pb[9] - pa[9], dy = pb[10] - pa[10], dz = pb[11] - pa[11];
 		const float depth = std::max({ std::fabs(pa[11]), std::fabs(pb[11]), 1.0f });
 		bool turned = false;   // over about 40 degrees: blending would squash the shape
@@ -246,14 +267,21 @@ void model2_video::smooth_pair(const smooth_rec &a, const smooth_rec &b)
 			if (la > 0 && lb > 0 && dot < 0.77f * std::sqrt(la * lb)) turned = true;
 		}
 		const bool moved = dx * dx + dy * dy + dz * dz > 0.09f * depth * depth;
-		if (moved || turned) {
-			jumps++;
-			// a part that only turned (a finger as the hand closes) keeps to its joint: its place
-			// is blended, its turn is the newer one's; one that moved far is the newer one's
-			m_pair[k] = moved ? -2 : -3 - m_pair[k];
-			static const bool log = getenv("VF2_SMOOTH_LOG") != nullptr;
-			if (log) fprintf(stderr, "jump frame %llu obj %zu oba %06x moved %.2f depth %.2f turned %d\n", (unsigned long long)b.frame, k, b.objects[k].oba, std::sqrt(dx * dx + dy * dy + dz * dz), depth, int(turned));
-		}
+		jump[k] = moved ? 1 : turned ? 2 : 0;
+		if (still[k]) still_n++, still_jumps += jump[k] != 0;
+	}
+	const bool camera_jumped = still_jumps * 2 > still_n;
+	int jumps = 0, paired = 0;
+	for (size_t k = 0; k < nb; k++) {
+		if (m_pair[k] < 0) continue;
+		paired++;
+		if (!jump[k] || (still[k] && !camera_jumped)) continue;
+		jumps++;
+		// a part that only turned (a finger as the hand closes) keeps to its joint: its place
+		// is blended, its turn is the newer one's; one that moved far is the newer one's
+		static const bool log = getenv("VF2_SMOOTH_LOG") != nullptr;
+		if (log) fprintf(stderr, "jump frame %llu obj %zu oba %06x moved %d turned %d\n", (unsigned long long)b.frame, k, b.objects[k].oba, int(jump[k] == 1), int(jump[k] == 2));
+		m_pair[k] = jump[k] == 1 ? -2 : -3 - m_pair[k];
 	}
 	m_pair_cut = jumps * 2 > paired || paired * 2 < int(nb);
 	m_pair_jumps = jumps;
@@ -347,6 +375,100 @@ void model2_video::repair_by_camera(const smooth_rec &a, const smooth_rec &b)
 			}
 		if (best >= 0) m_pair[k] = best, m_repaired++;
 		else if (rk > 0.06) m_pair[k] = -2, m_repaired++;   // none follows it: another of the run that came into the list, drawn where the newer frame has it
+	}
+}
+
+// The objects that sat still in the world while the camera moved, paired by their whole matrices
+// (place and turn) rather than their models and order. Each object's matrix is the camera's view of
+// it, so from one frame to the next everything that stayed where it was in the world is moved by
+// the same matrix: the camera's move, D = M' M^-1 from any such pair. Each pair of one model that
+// the order made gives a candidate; the one the most of those pairs follow (eight at least) is the
+// camera's. Then an object of the newer list that some object of the older list becomes under D,
+// within 1/10000 of its depth (exact but for rounding), is paired with that one, of whatever
+// model: it's the same thing in the same place, or one just like it there, and the picture
+// between the frames draws it where it is in the world. (Jeffry's beach: a row of bushes and the
+// palms' leaves, each drawn as one of its swaying shapes from frame to frame, so a bush's model is
+// another bush's a frame before; by model and order, and by places fitted to such pairs, a bush
+// was paired with its neighbour and drawn halfway there, or with none and left behind as the
+// camera moved: the bushes flickered.) The pairs the order, places and models made stand where
+// they're already such a pair; objects that moved in the world (the fighters) are left to them.
+void model2_video::pair_still(const smooth_rec &a, const smooth_rec &b, std::vector<char> &still)
+{
+	const size_t na = a.objects.size(), nb = b.objects.size();
+	still.assign(nb, 0);
+	if (na < 8 || nb < 8) return;
+	auto to = [](const float *m, double *o) { for (int i = 0; i < 12; i++) o[i] = m[i]; };
+	// o = x * y (the linear parts by columns, as the list has them: 0-2, 3-5, 6-8; then the place)
+	auto mul = [](const double *x, const double *y, double *o) {
+		for (int c = 0; c < 3; c++)
+			for (int r = 0; r < 3; r++) o[c * 3 + r] = x[r] * y[c * 3] + x[3 + r] * y[c * 3 + 1] + x[6 + r] * y[c * 3 + 2];
+		for (int r = 0; r < 3; r++) o[9 + r] = x[r] * y[9] + x[3 + r] * y[10] + x[6 + r] * y[11] + x[9 + r];
+	};
+	std::vector<std::array<double, 12>> ma(na), mb(nb), inv_a(na);
+	std::vector<char> inv_ok(na, 0);
+	for (size_t q = 0; q < na; q++) {
+		double *m = ma[q].data(), *o = inv_a[q].data();
+		to(a.objects[q].m, m);
+		const double det = m[0] * (m[4] * m[8] - m[7] * m[5]) - m[3] * (m[1] * m[8] - m[7] * m[2]) + m[6] * (m[1] * m[5] - m[4] * m[2]);
+		if (!(std::fabs(det) > 1e-12)) continue;
+		// the inverse's linear part: the cofactors over the determinant (transposed); its place
+		o[0] = (m[4] * m[8] - m[7] * m[5]) / det; o[3] = (m[6] * m[5] - m[3] * m[8]) / det; o[6] = (m[3] * m[7] - m[6] * m[4]) / det;
+		o[1] = (m[7] * m[2] - m[1] * m[8]) / det; o[4] = (m[0] * m[8] - m[6] * m[2]) / det; o[7] = (m[6] * m[1] - m[0] * m[7]) / det;
+		o[2] = (m[1] * m[5] - m[4] * m[2]) / det; o[5] = (m[3] * m[2] - m[0] * m[5]) / det; o[8] = (m[0] * m[4] - m[3] * m[1]) / det;
+		for (int r = 0; r < 3; r++) o[9 + r] = -(o[r] * m[9] + o[3 + r] * m[10] + o[6 + r] * m[11]);
+		inv_ok[q] = 1;
+	}
+	for (size_t k = 0; k < nb; k++) to(b.objects[k].m, mb[k].data());
+	// how far D takes the older one from the newer: its place over its depth, its turn over its size
+	auto off = [&](const double *D, size_t q, size_t k) {
+		double o[12];
+		mul(D, ma[q].data(), o);
+		const double *n = mb[k].data();
+		double dl = 0, nl = 0;
+		for (int i = 0; i < 9; i++) { dl = std::max(dl, std::fabs(o[i] - n[i])); nl = std::max(nl, std::fabs(n[i])); }
+		const double dx = o[9] - n[9], dy = o[10] - n[10], dz = o[11] - n[11];
+		return std::max(std::sqrt(dx * dx + dy * dy + dz * dz) / std::max(std::fabs(n[11]), 1.0), nl > 0 ? dl / nl : 1.0);
+	};
+	constexpr double TOL = 1e-4;
+	double D[12], best[12];
+	int best_n = 0;
+	std::vector<char> tried(nb, 0);
+	for (size_t k = 0; k < nb; k++) {
+		const int q = m_pair[k];
+		if (q < 0 || tried[k] || !inv_ok[q] || a.objects[q].oba != b.objects[k].oba) continue;
+		mul(mb[k].data(), inv_a[q].data(), D);
+		int n = 0;
+		for (size_t j = 0; j < nb; j++) {
+			const int p = m_pair[j];
+			if (p >= 0 && a.objects[p].oba == b.objects[j].oba && off(D, size_t(p), j) < TOL) { n++; tried[j] = 1; }
+		}
+		if (n > best_n) { best_n = n; memcpy(best, D, sizeof D); }
+	}
+	if (best_n < 8) return;
+	// the older objects' places after the move (a quick look before the whole matrix)
+	std::vector<std::array<double, 3>> moved(na);
+	for (size_t q = 0; q < na; q++) {
+		const double *m = ma[q].data();
+		for (int r = 0; r < 3; r++) moved[q][r] = best[r] * m[9] + best[3 + r] * m[10] + best[6 + r] * m[11] + best[9 + r];
+	}
+	for (size_t k = 0; k < nb; k++) {
+		const double *n = mb[k].data();
+		const double reach = TOL * std::max(std::fabs(n[11]), 1.0);
+		const int cur = m_pair[k];
+		int pick = -1;
+		double pick_off = 0;
+		bool pick_own = false;
+		for (size_t q = 0; q < na; q++) {
+			if (std::fabs(moved[q][0] - n[9]) > reach || std::fabs(moved[q][1] - n[10]) > reach || std::fabs(moved[q][2] - n[11]) > reach) continue;
+			const double d = off(best, q, k);
+			if (d >= TOL) continue;
+			if (int(q) == cur) { pick = cur; break; }   // (its pair is such a one: it stands)
+			const bool own = a.objects[q].oba == b.objects[k].oba;
+			if (pick < 0 || (own && !pick_own) || (own == pick_own && d < pick_off)) pick = int(q), pick_off = d, pick_own = own;
+		}
+		if (pick < 0) continue;
+		still[k] = 1;
+		if (pick != cur) { m_pair[k] = pick; m_repaired++; }
 	}
 }
 

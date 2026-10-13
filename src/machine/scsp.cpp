@@ -212,6 +212,7 @@ void scsp_device::set_group_gain(int group, float gain)
 	m_group_gain[group] = gain;
 	m_group_gains = false;
 	for (float g : m_group_gain) m_group_gains |= g != 1.0f;
+	if (!m_group_gains) m_fx_env = 0, m_fx_level = 1;
 }
 
 // sound_stream::update(): the samples up to now, the current one included
@@ -1213,6 +1214,7 @@ void scsp_device::DoMasterSamples(int samples)
 	for (int s = 0; s < samples; ++s)
 	{
 		s32 smpl = 0, smpr = 0;
+		s32 fxl = 0, fxr = 0, fxd = 0;   // the effects' direct output and their send to the DSP, before their volume and the leveller
 
 		for (int sl = 0; sl < 32; ++sl)
 		{
@@ -1227,8 +1229,16 @@ void scsp_device::DoMasterSamples(int samples)
 				u16 Enc;
 
 				s32 sample = UpdateSlot(slot);
-				if (m_group_gains)   // the host's per-group volume (off: MAME's mix)
-					sample = s32(float(sample) * m_group_gain[m_slot_group[sl]]);
+				if (m_group_gains) {   // the host's per-group volume (off: MAME's mix)
+					const int g = m_slot_group[sl];
+					if (g == 1) {
+						const u16 e = (SDIR(slot) ? 0 : TL(slot)) | (DIPAN(slot) << 0x8) | (DISDL(slot) << 0xd);
+						fxl += (sample * m_LPANTABLE[e]) >> SHIFT;
+						fxr += (sample * m_RPANTABLE[e]) >> SHIFT;
+						fxd += (sample * m_LPANTABLE[(SDIR(slot) ? 0 : TL(slot)) | (IMXL(slot) << 0xd)]) >> (SHIFT - 2);
+					}
+					sample = s32(float(sample) * (g == 1 ? m_group_gain[1] * m_fx_level : m_group_gain[g]));
+				}
 
 				// SDIR ("sound direct") sends the raw sample straight to the output,
 				// bypassing the envelope generator AND the TL attenuator (the EG/ALFO
@@ -1273,6 +1283,17 @@ void scsp_device::DoMasterSamples(int samples)
 		}
 
 		m_DSP.Step();
+
+		if (m_group_gains) {   // the effects' leveller: its gain for the next sample
+			const float l = float(fxl >> 2) / 32768, r = float(fxr >> 2) / 32768;
+			const float d = float(fxd) / 131072;
+			// the DSP's return (the reverb), as the effects' share of it comes out: about 0.6
+			// of the power sent in, across VF2's hits (measured over a game's fights)
+			const float p = 0.5f * (l * l + r * r) + 0.3f * d * d;
+			const float c = p > m_fx_env ? FX_ATTACK : FX_RELEASE;
+			m_fx_env = c * m_fx_env + (1 - c) * p;
+			m_fx_level = m_fx_env > FX_THRESHOLD ? std::pow(m_fx_env / FX_THRESHOLD, -0.5f * (1 - 1 / FX_RATIO)) : 1.0f;
+		}
 
 		for (int i = 0; i < 16; ++i)
 		{
