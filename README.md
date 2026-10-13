@@ -156,6 +156,8 @@ pictures as they go. `vf2 --interp` and `vf2run --interp` run the interpreter.
 Made with the help of AI coding tools. Every build is checked against the arcade: the recompiled i960 program runs
 side by side with MAME's interpreter, and the pictures, RAM and sound are compared frame by frame with MAME's.
 
+The whole story, with how the AI-assisted work was organised and checked: [docs/HOW-IT-WAS-MADE.md](docs/HOW-IT-WAS-MADE.md).
+
 ## Credits
 
 Built on MAME's work on the Model 2: the i960 core and disassembler (Farfetch'd, R. Belmont), the 68000 core and
