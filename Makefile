@@ -63,7 +63,7 @@ RML_SRC = $(wildcard third_party/rmlui/Source/Core/*.cpp third_party/rmlui/Sourc
 	third_party/rmlui/Backends/RmlUi_Platform_SDL.cpp third_party/rmlui/Backends/RmlUi_Renderer_SDL.cpp
 RML_CFLAGS = -DRMLUI_STATIC_LIB -DRMLUI_FONT_ENGINE_FREETYPE -DRMLUI_SDL_VERSION_MAJOR=3 -Ithird_party/rmlui/Include -Ithird_party/rmlui/Backends
 $(OBJ)/third_party/rmlui/%.o: CXXFLAGS += $(RML_CFLAGS) $(FT_CFLAGS) $(SDL_CFLAGS) -w
-$(OBJ)/src/host/main.o $(OBJ)/src/host/menu.o: CXXFLAGS += $(SDL_CFLAGS) $(RML_CFLAGS)
+$(OBJ)/src/host/main.o $(OBJ)/src/host/menu.o $(OBJ)/src/host/sysinfo.o $(OBJ)/src/host/d3d11_map.o: CXXFLAGS += $(SDL_CFLAGS) $(RML_CFLAGS)
 $(OBJ)/src/host/main.o: $(OBJ)/version.h
 $(OBJ)/src/host/main.o: CXXFLAGS += -I$(OBJ)
 
@@ -74,9 +74,24 @@ $(OBJ)/src/host/stb_image_impl.o: CXXFLAGS += -w
 # into build/bin/vf2lock and build/bin/vf2run-rec, for the lockstep check.
 GEN_NONE = src/rec/gen_none.cpp
 
-$(BIN)/vf2: $(call objs,src/host/main.cpp src/host/menu.cpp src/host/stb_image_impl.cpp $(MACHINE) $(HOST) $(CORE) $(GEN_NONE) $(M68000) $(RML_SRC)) $(SLJIT_OBJ)
+# The 3D on the GPU in the game (src/gpu: Display > 3D renderer): Metal for an Apple target (the
+# compiler's), SDL_GPU elsewhere (Direct3D 12 or Vulkan: gpu3d_sdlgpu.cpp, its shaders precompiled
+# in gpu3d_shaders.h by tools/gpu/shaders.sh); GPU3D=none: the CPU's 3D only.
+GPU3D ?= $(if $(findstring apple,$(shell $(CXX) -dumpmachine 2>/dev/null)),metal,sdlgpu)
+ifeq ($(GPU3D),metal)
+GPU3D_OBJ = $(OBJ)/src/gpu/gpu3d_metal.o
+GPU3D_LIBS = -framework Metal -framework Foundation -framework CoreVideo -framework QuartzCore
+$(OBJ)/src/host/main.o: CXXFLAGS += -DVF2_GPU3D_METAL=1
+endif
+ifeq ($(GPU3D),sdlgpu)
+GPU3D_OBJ = $(OBJ)/src/gpu/gpu3d_sdlgpu.o
+$(OBJ)/src/gpu/gpu3d_sdlgpu.o: CXXFLAGS += $(SDL_CFLAGS)
+$(OBJ)/src/host/main.o: CXXFLAGS += -DVF2_GPU3D_SDL=1
+endif
+
+$(BIN)/vf2: $(call objs,src/host/main.cpp src/host/menu.cpp src/host/sysinfo.cpp src/host/d3d11_map.cpp src/host/stb_image_impl.cpp $(MACHINE) $(HOST) $(CORE) $(GEN_NONE) $(M68000) $(RML_SRC)) $(SLJIT_OBJ) $(GPU3D_OBJ)
 	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDLIBS) $(SDL_LIBS) $(FT_LIBS)
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDLIBS) $(SDL_LIBS) $(FT_LIBS) $(GPU3D_LIBS)
 
 $(BIN)/vf2romset: $(call objs,tools/vf2romset.cpp $(HOST))
 	@mkdir -p $(dir $@)
@@ -136,3 +151,21 @@ $(BIN)/check-%: $(call objs,tools/checks/%.cpp src/host/stb_image_impl.cpp $(MAC
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDLIBS)
 checks: $(addprefix $(BIN)/check-,$(CHECKS))
 .PHONY: checks
+
+# ---- the 3D on the GPU (src/gpu) ----
+# gpu3dcmp: the CPU's and the GPU's pictures of the same 3D compared, coverage and colour (tools/gpu3dcmp.cpp): Metal on a Mac, SDL_GPU elsewhere (SDL_VIDEODRIVER=offscreen without a display).
+$(OBJ)/%.o: %.mm
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -fobjc-arc -MMD -MP -c $< -o $@
+ifeq ($(GPU3D),sdlgpu)
+$(OBJ)/tools/gpu3dcmp.o: CXXFLAGS += $(SDL_CFLAGS) -DGPU3DCMP_SDLGPU=1
+$(BIN)/gpu3dcmp: $(call objs,tools/gpu3dcmp.cpp src/host/stb_image_impl.cpp $(MACHINE) $(HOST) $(CORE) $(GEN_NONE) $(M68000)) $(OBJ)/src/gpu/gpu3d_sdlgpu.o $(SLJIT_OBJ)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDLIBS) $(SDL_LIBS)
+else
+$(BIN)/gpu3dcmp: $(call objs,tools/gpu3dcmp.cpp src/host/stb_image_impl.cpp $(MACHINE) $(HOST) $(CORE) $(GEN_NONE) $(M68000)) $(OBJ)/src/gpu/gpu3d_metal.o $(SLJIT_OBJ)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDLIBS) -framework Metal -framework Foundation -framework CoreVideo -framework QuartzCore
+endif
+.PHONY: gpu3dcmp
+gpu3dcmp: $(BIN)/gpu3dcmp

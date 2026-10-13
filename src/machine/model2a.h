@@ -26,6 +26,7 @@
 #include "scsp.h"
 #include "../../third_party/mame/m68000/m68000.h"
 #include <array>
+#include <functional>
 #include <deque>
 #include <map>
 #include <vector>
@@ -98,8 +99,18 @@ public:
 		int sides = 0;
 		u32 side_colour[2] = {};
 		const u32 *side_px = nullptr;
+		bool gpu3d = false;   // the 3D drawn by the host's gpu3d (has3d: something to show), not in px3d
 	};
-	bool render_parts(float alpha, u32 *px3d, size_t stride3d, bool async, picture_parts &parts);
+	// The 3D on the GPU (the host's, src/gpu/gpu3d.h): given `gpu`, the 3D isn't drawn on the CPU
+	// but handed over: gpu(video, picture) with the RAMs as that picture's frame left them (its
+	// list: video.export_picture(picture)); the RAMs as they are again once it returns. Its
+	// drawing goes on alongside, whether async or not. False from gpu: drawn on the CPU after all,
+	// into px3d (gpu3d false). Not for a 4:3 screen in a wide picture (its sides go by the 3D's
+	// edge columns): drawn on the CPU, or with gpu_only nothing at all (render_parts false: the
+	// host draws the picture whole). also_cpu: the CPU's 3D into px3d as well (checking the GPU's).
+	using gpu3d_hook = std::function<bool(model2_video &, int)>;
+	bool render_parts(float alpha, u32 *px3d, size_t stride3d, bool async, picture_parts &parts,
+		const gpu3d_hook *gpu = nullptr, bool gpu_only = false, bool also_cpu = false);
 	// Smooth motion (model2_smooth.cpp): each frame's 3D kept, so that a picture can be drawn for
 	// any moment between the last two frames (the picture a frame behind the game). The host's:
 	// off (vf2run) nothing is kept and nothing changes. render_smooth draws the moment `alpha`
@@ -134,6 +145,8 @@ public:
 	// The polygons in the 3D the picture shows (0: none), and in the 3D drawn `ago` (0-2) frames
 	// before the newest
 	int frame_polygons() const { return m_video->polygons_shown(); }
+	// The video board, for the GPU renderer's tools (model2_video::export_shown, owner_map_shown)
+	model2_video &video() { render_wait(); return *m_video; }
 	int polygons_drawn(int ago) const { return m_video->polygons_drawn(ago); }
 	// The 3D shown 0-2 frames after MAME shows it (model2_video::set_delay; 0: MAME's screen).
 	// Every frame's 3D must then be set up (set_draw_3d(true)): a frame's is shown later.
@@ -469,7 +482,8 @@ private:
 	// 3D, the layers over the 3D
 	bitmap_rgb32 m_screen, m_sys24, m_sys24_mid, m_sys24_top;
 	u32 under_3d(int y, int x) const { const u32 p = m_sys24_mid.pix(y, x); return p ? p : m_sys24.pix(y, x); }
-	void draw_picture(u32 *out, size_t stride, bool polygons, bool async, float alpha = -1, picture_parts *parts = nullptr);
+	void draw_picture(u32 *out, size_t stride, bool polygons, bool async, float alpha = -1, picture_parts *parts = nullptr,
+		const gpu3d_hook *gpu = nullptr, bool also_cpu = false);
 	// the frame's 2D state, kept when a picture of it is still held once the game runs on
 	struct frame_2d {
 		uint64_t frame = 0;
@@ -508,6 +522,7 @@ private:
 	// The 3D's RAMs changing: a deferred picture drawn, a picture being drawn finished, and with
 	// smooth motion the change kept (m_ram_log)
 	enum { RAM_XLAT, RAM_TEX0, RAM_TEX1, RAM_LUMA, RAM_PAL };
+	void note_gpu_ram(int kind);
 	void before_3d_ram_change(int kind, u32 offset, u32 old, u32 now);
 	struct ram_change { uint64_t frame; u8 kind; u32 offset, old, now; };
 	std::vector<ram_change> m_ram_log;   // the last frames' changes, oldest first

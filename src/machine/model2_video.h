@@ -57,6 +57,8 @@ struct m2_poly_extra_data
 };
 
 class model2_renderer;
+struct gpu3d_poly;
+struct gpu3d_rams;
 
 class model2_video
 {
@@ -102,6 +104,32 @@ public:
 	// The polygons in the 3D layer() shows (0: none), and in the one drawn `ago` frames before the
 	// newest (0-2: with a delay, the 3D still to be shown)
 	int polygons_shown() const;
+	// The GPU renderer's (src/gpu/gpu3d.h, step 1): the 3D shown's list, in the order drawn, as
+	// gpu3d_poly; and, for checking its coverage, each pixel's polygon in that list (its place;
+	// 0xffffffff none) as the CPU's rasterizer finds it, at the render scale (render_size: w x h).
+	// Neither changes what is drawn.
+	void export_shown(std::vector<gpu3d_poly> &out) const;
+	// any picture's list (0-3: shown_index's, smooth_layer's), for the GPU's drawing in the game
+	void export_picture(int picture, std::vector<gpu3d_poly> &out) const;
+	// the picture shown now (its list and its map), not marked drawn (-1: none)
+	int shown_index() const { return m_render_test_mode ? -1 : shown_now(); }
+	// The host's Auto (CPU or GPU): a made-up scene the size of a fight's (bench_make), drawn on
+	// the CPU at the render scale (bench_cpu: ms, on every core, into a picture of its own), or
+	// handed over for the GPU (bench_export). Nothing the game shows changes.
+	void bench_make(int n);
+	void bench_take(int picture);   // (or a picture's own list: the game's scene)
+	double bench_cpu(int part = 0, int parts = 1);   // (or a part of its rows: part of parts bands)
+	const bitmap_rgb32 &bench_picture() const { return m_bench_map; }   // (bench_cpu's: checking the GPU's against it)
+	void bench_export(std::vector<gpu3d_poly> &out) const;
+	void owner_map_shown(u32 *out, size_t stride);
+	// The RAMs the textured polygons are coloured from, for the GPU (gpu3d_rams), with a count of
+	// each one's changes: the board counts them (note_ram, before and as it changes one)
+	void gpu_rams(gpu3d_rams &out) const;
+	enum { GPU_TEX0, GPU_TEX1, GPU_LUMA, GPU_XLAT };
+	void note_ram(int which) { m_ram_gen[which]++; }
+	u32 m_ram_gen[4] = {};
+	void render_size(int &w, int &h) const { w = (496 + 2 * m_ext) * m_scale; h = 384 * m_scale; }
+	int render_scale() const { return m_scale; }
 	int polygons_drawn(int ago) const;
 	// The 3D shown `frames` (0-2) after MAME shows it. 0 is MAME's screen. VF2 scrolls its 2D
 	// backdrop for a camera two frames after MAME draws that camera's 3D (at every cut, and while
@@ -253,6 +281,9 @@ private:
 	void build_drawn(raster_state *raster, std::vector<drawn_poly> &drawn);
 	void geo_run(u32 *buffer, u32 start, geo_state *geo, raster_state *raster);
 	void draw_framebuffer(bitmap_rgb32 &bitmap, const rectangle &cliprect);
+	void export_list(const std::vector<drawn_poly> &list, std::vector<gpu3d_poly> &out) const;
+	std::vector<drawn_poly> m_bench;
+	bitmap_rgb32 m_bench_map;
 
 	u32 *geo_process_command( geo_state *geo, u32 opcode, u32 *input, bool *end_code );
 	// geo commands
@@ -339,6 +370,9 @@ public:
 	// scan conversion within `band` (screen rows), at `scale` pixels per arcade pixel.
 	void prepare(polygon *poly, const rectangle &cliprect, model2_video::drawn_poly &out);
 	void draw(const model2_video::drawn_poly &p, int scale, const rectangle &band);
+	// The same scan conversion, writing `index` where no polygon before it has (owner: 0xffffffff
+	// none yet), not the picture: which polygon owns each pixel (model2_video::owner_map_shown)
+	void draw_owner(const model2_video::drawn_poly &p, int scale, u32 index, bitmap_rgb32 &owner);
 	void set_xoffset(int16_t xoffs) { m_xoffs = xoffs; }
 	void set_yoffset(int16_t yoffs) { m_yoffs = yoffs; }
 

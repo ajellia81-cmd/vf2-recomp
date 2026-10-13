@@ -50,7 +50,23 @@ and these additions to the arcade:
 - **Scene sync and sound.** Scene changes are held until the new scene is whole. Music and effects have separate
   volumes, and the overall level has a peak limiter.
 
-A GPU renderer for the 3D is in progress on a separate branch. It isn't in the releases.
+**The GPU renderer.** Since v0.1.2 the 3D can also be drawn on the GPU (Display > 3D renderer): Metal on a Mac,
+SDL_GPU compute on Windows (Direct3D 12 or Vulkan) and Linux / Steam Deck (Vulkan). The goal was the CPU renderer's
+picture exactly, not an approximation of it:
+
+- **Draw order as depth.** Model 2 sorts its polygons and draws them in order; there is no depth buffer to hand to a
+  GPU. So the GPU isn't used as a normal triangle rasteriser: a compute shader rasterises the polygons itself, in the
+  game's order, and the last polygon to cover a pixel wins, as on the CPU.
+- **The same arithmetic.** Each step follows the CPU renderer's: the edge set-up, the texture coordinates, the
+  shading. Matching it on every platform took care: GPU division isn't correctly rounded, so divisions are done in
+  integer arithmetic; shader compilers fuse multiply-adds, so every float operation is marked `precise` and none are
+  fused; and float-to-integer conversion copies x86's (out of range gives the most negative integer).
+- **Checked, then trusted.** `tools/gpu3dcmp.cpp` draws the same frames both ways and compares every pixel's polygon
+  and colour. Across the attract and fights, 1x to 4x, 4:3 to 21:9, on Metal, Vulkan (several drivers) and Direct3D
+  12, the GPU's pictures are the CPU's: 100%, no pixel different. The game repeats a small version of this at every
+  start: a test scene drawn both ways, then its first pictures of the game itself. A difference, an error or a
+  missing driver, and that run uses the CPU. Auto (the default) then uses the GPU unless it's clearly slower than the
+  CPU on that machine.
 
 ## How it was checked
 
@@ -71,10 +87,10 @@ Everything is checked against two references: MAME's interpreter, and MAME itsel
 - **Twin-board picture checks.** These compare pictures drawn by different paths of the same build: pipelined against
   drawn at once, smooth motion at a frame's own moment against the plain frame, redraws, and GPU-composited parts
   against the CPU's. All must match pixel for pixel.
-- **Where MAME isn't the arcade.** The game's mix puts its music about 13 dB over the hits. Every gain stage of MAME's
-  SCSP was checked against other hardware-tested implementations and the chip's manual, and nothing in the core was
-  wrong. So the core stays MAME-exact, and the balance is set by the host's volume defaults, as a stated choice. At
-  music 100 and effects 100 the output is MAME's, sample for sample.
+- **Where MAME isn't the arcade.** The game's mix puts its music well over the hits. Every gain stage of MAME's SCSP
+  was checked against other hardware-tested implementations (Mednafen's and Yabause's) and the chip's manual. One
+  difference turned up, in the reverb (below), and is the one deliberate departure from MAME's sound. The rest of the
+  balance is the game's own, so it's set by the host's volume defaults, as a stated choice.
 
 ## Working with AI
 
@@ -110,6 +126,23 @@ The AI wrote nearly all the code. A person decided what was right.
   from the first frame on a Deck, and at the scale where a previous run needed it.
 - **Hedges drawn over towers at the far edges of 32:9** → Model 2 sorts a polygon by one depth, taken from an
   off-screen end → polygons seen only in the side columns sort by their on-screen part. The 4:3 part is unchanged.
+- **The music's reverb was a near-mono smear, and too loud** → MAME treats the SCSP's registers at 0x7c0-0x7ff as a
+  mirror of the DSP's delay-line addresses (MADRS); the game's sound program sets those addresses, then clears
+  0x7c0-0x7ff, which with the mirror wiped them all, so every reverb tap read the same place (left/right correlation
+  0.99, the music 8-11 dB louder). Found by comparing with other SCSP implementations, which keep that range as its
+  own storage → the same here; the reverb is wide stereo again (correlation 0.65-0.85). The default music volume went
+  from 20 to 50 to keep the same balance with the hits, and a saved 20 moves to 50 once. `VF2_SCSP_MADRS_MIRROR=1`
+  brings MAME's behaviour back for comparisons.
+- **Slow above 1x on Windows, even on fast PCs** → SDL's Direct3D 11 renderer makes a new staging texture each time a
+  texture is locked, and the game drew its pictures straight into the locked texture → on Direct3D 11 the pictures
+  are drawn in ordinary memory and copied into a texture mapped for writing only (`src/host/d3d11_map.cpp`). The
+  same pixels as before.
+- **A GPU picture that wasn't the CPU's on another platform** → a GPU's division, fused multiply-adds and
+  float-to-integer conversion each differ from the CPU's → integer division, no fusing, x86's conversion, and a
+  self-test at every start (see above).
+- **Players' setups** → portable mode (a `portable.txt` beside the program keeps everything in its folder) and a ROM
+  folder of the player's own (`--roms`, `VF2_ROMS` or `roms_folder` in `settings.ini`), only read, so an update can't
+  touch it.
 - **x86-64 pictures a few texels off Apple silicon's** → fused multiply-adds round differently → an exact build flag
   for checking. RAM and registers are identical either way.
 - **A crash when the renderer lost its textures** → a device reset (Direct3D) dropped textures still in use → every
@@ -125,6 +158,7 @@ The AI wrote nearly all the code. A person decided what was right.
 - `tools/recomp/`, and the Makefile's `map` and `rec` targets: making the map and the C++ form.
 - `src/machine/`: the Model 2A board (memory map, timers, TGP glue, renderer, sound, smooth motion).
 - `src/host/`: window, pacing, governor, pipelining, scene sync, GPU compositing, the menu.
+- `src/gpu/` and `tools/gpu3dcmp.cpp`: the GPU renderer and its comparison with the CPU's.
 - `tools/vf2run.cpp`, `tools/scripts/`, `tools/compare.py`, `tools/sound_compare.py`: the headless runner and the
   comparisons with MAME.
 - `git log`: each commit message explains what changed, why, and how it was checked.

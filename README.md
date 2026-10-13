@@ -49,8 +49,9 @@ screen's refresh rate.
 | Render scale up to 6x, widescreen and ultrawide, smooth motion | Working |
 | Menu, keyboard and gamepads, two players, the arcade's settings | Working |
 | macOS, Windows, Linux / Steam Deck | Working |
-| A GPU renderer for the 3D | Not yet: in progress |
-| The GPU renderer on Windows and Steam Deck | Not yet |
+| The 3D drawn on the GPU (Display > 3D renderer: Auto, GPU or CPU) | Working on macOS (Metal), Windows (Direct3D 12 or Vulkan) and Linux / Steam Deck (Vulkan): the same picture as the CPU's, checked when the game starts; Auto uses the GPU unless it's clearly slower, and any difference or error falls back to the CPU |
+| Stereo reverb (the sound board's DSP) | Working: wide stereo, as on the cabinet (fixed in v0.1.2) |
+| Portable mode, your own ROM folder | Working |
 | Online play | Not yet |
 
 ## Play
@@ -82,7 +83,25 @@ From the [latest release](https://github.com/mr-finster/vf2-recomp/releases/late
    the use of a specific Steam Play compatibility tool" off: it's a native Linux game, and Proton stops it launching.
 4. Back in Game Mode, launch it from your Library with the default Gamepad layout.
 
+The Windows download also runs on the Deck under Proton (add `VirtuaFighter2.exe` instead, with Proton forced on),
+but the native Linux build above is the one to use.
+
 On another x86-64 Linux PC: unpack it anywhere, put `vf2.zip` in its `roms` folder and run `VirtuaFighter2.sh`.
+
+**Portable mode:** put a file named `portable.txt` next to the program (Windows: beside `VirtuaFighter2.exe`; Mac:
+beside the app, in the same folder) and the game keeps everything in that folder: settings, saves, screenshots,
+`log.txt` and the copy of your `vf2.zip` (in its `roms` folder), with nothing in your user data folder (`%APPDATA%`,
+`~/Library/Application Support`). The Linux / Steam Deck build keeps everything in its folder already.
+
+**Your own ROM folder** (e.g. Batocera's `/userdata/roms/ports/vf2`, or any folder an update won't touch): start the
+game with `--roms <folder>` (or `--roms=<folder>`), set the environment variable `VF2_ROMS`, or add
+`roms_folder = <folder>` to `settings.ini`; the command line wins, then `VF2_ROMS`, then `settings.ini`. `~` is your home
+folder, and a relative path in `settings.ini` is from its folder. The game looks there first for `vf2.zip` and
+only reads it (no copy is kept anywhere else); `log.txt` names the folder it used. If the zip isn't there, the log
+says where it looked and the game carries on as without the option; a zip you then choose with the file picker is
+copied into your ROM folder, so the next start finds it there. Examples: Windows `VirtuaFighter2.exe --roms "D:\ROMs\vf2"`;
+Mac `open "Virtua Fighter 2 Recomp.app" --args --roms ~/ROMs/vf2`; Linux / Batocera
+`./VirtuaFighter2.sh --roms /userdata/roms/ports/vf2`.
 
 > [!NOTE]
 > The Mac and Windows builds aren't signed. On macOS, open it once, close the message, then System Settings >
@@ -100,7 +119,7 @@ Change them in the menu (<kbd>Esc</kbd>, or View / Select on a pad).
 | <kbd>I</kbd> <kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd> | Player 2: move |
 | <kbd>B</kbd> <kbd>N</kbd> <kbd>M</kbd> | Player 2: guard, punch, kick |
 | <kbd>2</kbd> | Player 2: start |
-| <kbd>Esc</kbd> | Menu: display, sound, game, arcade settings, controls, quit |
+| <kbd>Esc</kbd> | Menu: display (render scale, picture shape, antialiasing, 3D renderer...), sound, game, arcade settings, controls, quit |
 | <kbd>P</kbd> | Pause |
 | <kbd>F3</kbd> | Reset |
 | <kbd>F5</kbd> / <kbd>F6</kbd> | Render scale / picture shape |
@@ -120,6 +139,15 @@ into native code with SLJIT as the game starts. Around it, code from MAME runs t
 TGP, the geometrizer and polygon renderer, the tile chip and the sound board's 68000 and SCSP. The SDL 3 host
 composites the picture, scales and shapes it, and fills in the frames between the arcade's for smooth motion.
 
+The 3D can also be drawn on the GPU (`src/gpu`): Metal on a Mac, and SDL_GPU compute (Direct3D 12 or Vulkan) on
+Windows and Linux, where SDL's GPU renderer then draws the whole window. The GPU doesn't use the usual depth buffer:
+the polygons are drawn in the game's own order, the order standing in for depth, by a compute rasteriser that
+follows the CPU renderer's arithmetic step for step (integer division, no fused multiply-adds, float-to-integer
+conversion as on x86), so its picture is the CPU's pixel for pixel (`gpu3dcmp` compares the two). When the game
+starts it draws a test scene both ways and compares them, then checks its first pictures of the game itself; any
+difference, error or missing driver and it uses the CPU for that run. Auto (the default) then picks the GPU unless
+it's clearly slower than the CPU on that machine.
+
 ## Repository layout
 
 | Path | Contents |
@@ -127,7 +155,9 @@ composites the picture, scales and shapes it, and fills in the frames between th
 | `src/core` | the Fujitsu MB86233 (TGP) core, from MAME, and the shim MAME's CPU cores compile against |
 | `src/rec` | the i960 recompiler: code discovery, native code (SLJIT) at start-up, the C++ build's, the runtime |
 | `src/machine` | Model 2A: memory map, interrupts and timers, the TGP glue, geometrizer and renderer, the tile chip, the sound board, smooth motion |
-| `src/host` | the SDL 3 host: window, input, pacing, scene sync, the GPU compositing, the RmlUi menu |
+| `src/host` | the SDL 3 host: window, input, pacing, scene sync, the GPU compositing (`d3d11_map.cpp`: Windows' texture uploads), the RmlUi menu |
+| `src/gpu` | the GPU renderer for the 3D: Metal (`gpu3d_metal.mm`), SDL_GPU (`gpu3d_sdlgpu.cpp`), its HLSL compute shaders (`gpu3d.hlsl`) and their compiled SPIR-V / DXIL (`gpu3d_shaders.h`) |
+| `tools/gpu/shaders.sh`, `tools/gpu3dcmp.cpp` | compiles `gpu3d.hlsl` into `gpu3d_shaders.h` with DXC; compares the GPU's 3D with the CPU's |
 | `assets/` | the app icon, the menu (`ui/`) and its font, the player select's painted sides |
 | `third_party/` | MAME's i960 and 68000 cores and more, SLJIT, RmlUi, stb_image |
 | `tools/recomp` | the ahead-of-time recompiler (i960 to C++), for development |

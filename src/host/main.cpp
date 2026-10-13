@@ -5,7 +5,7 @@
 //
 //   vf2 [vf2.zip] [--arcade] [--fullscreen | --window] [--no-sound] [--music N] [--effects N]
 //       [--volume N] [--scale N] [--aspect fit|4:3|16:10|16:9|21:9] [--show-boot] [--no-scene-sync]
-//       [--interp]
+//       [--interp] [--roms <folder>]
 //
 // The game's i960 code is recompiled to native code from the player's ROM as it starts (src/rec,
 // tens of milliseconds); --interp (or VF2_INTERP=1) runs it on MAME's interpreter instead, the
@@ -13,14 +13,18 @@
 //
 // The game and the data folder (the saves, settings.ini, backgrounds/, Screenshots, log.txt):
 // a zip named on the command line, with vf2_data beside it; else the player's own, roms/vf2.zip
-// in their data folder, which is a "roms" folder's beside the program (portable: the Steam Deck
-// package keeps everything in its folder), else the source tree's roms/vf2.zip (from the current
-// folder: vf2_data beside it, as before), else the system's (~/Library/Application Support,
-// %APPDATA%, ~/.local/share: "Virtua Fighter 2 Recomp"). The player's own is asked for the first
-// time (first_launch): a file picker for MAME's vf2.zip, checked, then copied into roms/.
+// in their data folder, which is the program's own folder in portable mode (a file named
+// portable.txt beside the program, or beside a Mac's .app: nothing is read or written anywhere
+// else), else a "roms" folder's beside the program (the Steam Deck package keeps everything in
+// its folder), else the source tree's roms/vf2.zip (from the current folder: vf2_data beside it,
+// as before), else the system's (~/Library/Application Support, %APPDATA%, ~/.local/share:
+// "Virtua Fighter 2 Recomp"). The player's own is asked for the first time (first_launch): a file
+// picker for MAME's vf2.zip, checked, then copied into roms/. A ROM folder of the player's own
+// (--roms <folder>, VF2_ROMS, or roms_folder = <folder> in settings.ini, in that order) is looked
+// in first for vf2.zip, and never written to unless a set is picked while it has none.
 //
 // The menu (Esc, or View tapped on a pad) pauses the game and its sound: Display (render scale,
-// antialiasing, picture shape, background and screen filters, the frame rate, fullscreen), Sound
+// antialiasing, the 3D's renderer: CPU, GPU or Auto, picture shape, background and screen filters, the frame rate, fullscreen), Sound
 // (the overall, music and effects volumes), Game (PC or arcade play style, reset), Arcade
 // settings (the game's own, from its test mode: a change restarts the game as the menu closes;
 // and the service menu), Controls (each player's pad, keys and pad buttons) and Quit. Its choices
@@ -28,13 +32,16 @@
 // the command line wins over them.
 //
 // --music and --effects (0-100) set the volumes of the music and of the effects and voices. VF2
-// plays its music through the SCSP's effect DSP (reverb) with many voices at once, and its hits
-// and voices dry: in the game's own mix, as MAME's SCSP makes it (and we do, sample for sample),
-// the music is about 13 dB over the effects. The default, music 20 and effects 100, puts the
-// hits and the announcer back over the music; --music 100 --effects 100 is the game's own mix.
-// The night stage's thunder goes with the music, as in the game. With the volumes apart, a
-// leveller evens out the effects (src/machine/scsp.h: a KO's last hit or a roar comes down to a
-// few dB over a jab, where the game has them 12 dB apart under its louder music).
+// plays its music through the SCSP's effect DSP (a stereo reverb) with many voices at once, and
+// its hits and voices mostly dry. In the game's own mix (--music 100 --effects 100) the hits, the
+// announcer and the crowd sit about level with the music's bed (MAME's SCSP, whose mirror of the
+// DSP's MADRS wiped VF2's reverb, made the music a near-mono smear 8-11 dB louder: see
+// src/machine/scsp.h). The default, music 50 and effects 100, puts them about 6 dB over it, as
+// the earlier music 20 did over the louder smear, at the same overall loudness.
+// The night stage's thunder goes with the music, as in the game (at the defaults about 2 dB under
+// a typical hit, as before). With the volumes apart, a leveller evens out the effects
+// (src/machine/scsp.h: a KO's last hit or a roar, 12 dB over the music's bed at the defaults
+// without it, comes down to 8, a few dB over a jab).
 // --volume (0-100, default 100) is the overall level. The board's output peaks well under full
 // scale, more so with the music down, so the host raises it by LEVEL (at 100), with a limiter
 // that keeps the loudest moments from clipping.
@@ -99,7 +106,7 @@
 //   VF2_GOVERN=1         the render scale governor in a test run too (else only on screen)
 //   VF2_TEST_LOAD=ms:s   each pass ms longer a frame (at 3x; by the scale's square) for the
 //                        first s seconds on show (the governor's tests: a slow start); VF2_SCREEN_HZ=n: the governor's screen as n Hz
-//   VF2_THREADS=N        threads drawing the 3D (default: the cores less 2, 8 at most)
+//   VF2_THREADS=N        threads drawing the 3D (default: the cores less 1, 12 at most)
 //   VF2_KEYS=k@F,...     presses key k (an SDL key name: F5, F6, F11, Escape...) when game frame F
 //                        is reached, e.g. VF2_KEYS=F5@300,F11@400; its window as drawn 3 frames
 //                        later goes to build/host_window_F.png
@@ -111,6 +118,19 @@
 //   VF2_KO=P@a[-b]       knocks player P out in every round from game frame a (to b), as vf2run's
 //                        --ko: with the scripted game, KOs, replays, the winner and the next match
 //   VF2_PICTURE_LOG=f    a line a pass: where each picture's time went (see picture_log)
+//   VF2_3D=cpu|gpu|auto  the 3D's renderer (Display > 3D renderer: see gpu3d_state), VF2_GPU3D_FAST=1
+//                        its fast quality; VF2_GPU3D_CHECK=n every n-th GPU picture checked against the
+//                        CPU's: its 3D, and the picture as put together for the screen against the
+//                        CPU's way's (read at once, or every other one copied by the renderer and read
+//                        some passes later; half of them drawn without the CPU's 3D alongside), the
+//                        differing ones to VF2_GPU3D_CHECK_DIR; VF2_GPU3D_SLOW=n the GPU's drawing
+//                        done n times over (a slow GPU); VF2_TEST_GPU_LOAD=n the renderer's own GPU
+//                        work made slow (n extra large draws a pass);
+//                        VF2_AUTO_RECHECK=pass,... Auto's check again (VF2_AUTO_ANYTIME=1: at once)
+//   VF2_STAGE=n          the fights' stage (0-11), as the scene tools force it
+//   VF2_FLICKER=dir      each new picture shown read back against the two before it: pixels that
+//                        change and change back, per picture in dir/flicker.txt (VF2_FLICKER_FROM=frame,
+//                        VF2_FLICKER_MIN=pixels: the worst saved from then)
 //   VF2_PAD_KEYS=...     virtual pads: "plug@N" attaches one at pass N, "unplug@N" takes the last
 //                        away, "P:buttons@N[/H]" holds pad P's buttons (SDL names joined by '+',
 //                        lefttrigger and righttrigger too) from pass N for H passes (default 4)
@@ -123,8 +143,10 @@
 #include "scene_sync.h"
 #include "backgrounds.h"
 #include "gpu_picture.h"
+#include "../gpu/gpu3d.h"
 #include "menu.h"
 #include "controls.h"
+#include "sysinfo.h"
 #include <SDL3/SDL.h>
 #ifdef _WIN32
 #include <SDL3/SDL_main.h>   // WinMain, and argv as UTF-8
@@ -149,6 +171,14 @@
 #include <unistd.h>
 #endif
 
+// Every message box goes through here: a test run (VF2_HIDDEN) never shows one (nor a file picker),
+// the message goes to stderr (log.txt without a console) instead.
+static bool message_box(SDL_MessageBoxFlags flags, const char *title, const std::string &msg)
+{
+	if (getenv("VF2_HIDDEN")) { fprintf(stderr, "(hidden: no dialog) %s\n", msg.c_str()); return false; }
+	return SDL_ShowSimpleMessageBox(flags, title, msg.c_str(), nullptr);
+}
+
 namespace {
 
 constexpr double FRAME_HZ = 16000000.0 / (656.0 * 424.0);   // 57.52 Hz, MAME's Model 2 screen
@@ -163,6 +193,50 @@ std::string find_assets()
 	for (const std::string &d : { b + "assets", b + "../../assets", std::string("assets") })
 		if (FILE *f = fopen((d + "/ui/menu.rml").c_str(), "rb")) { fclose(f); return d; }
 	return "assets";
+}
+// A folder as the player writes it: "~" (or "~/...") is their home folder; quotes around it are
+// dropped; a relative one is taken from `base` (settings.ini's folder) or the current folder.
+std::string player_folder(std::string f, const std::string &base = std::string())
+{
+	while (!f.empty() && (f.back() == ' ' || f.back() == '\t')) f.pop_back();
+	if (f.size() >= 2 && (f[0] == '"' || f[0] == '\'') && f.back() == f[0]) f = f.substr(1, f.size() - 2);
+	if (f.empty()) return f;
+	if (f[0] == '~' && (f.size() == 1 || f[1] == '/' || f[1] == '\\')) {
+		const char *h = getenv("HOME");
+		if (!h || !*h) h = getenv("USERPROFILE");
+		if (h && *h) f = std::string(h) + f.substr(1);
+	}
+	std::filesystem::path p(f);
+	std::error_code ec;
+	if (p.is_relative()) p = base.empty() ? std::filesystem::absolute(p, ec) : std::filesystem::path(base) / p;
+	p = p.lexically_normal();
+	if (!p.has_filename() && p.has_relative_path()) p = p.parent_path();   // (no separator at the end)
+	return p.string();
+}
+
+// The program's folder, with a separator at the end: a Mac app's is the folder the .app is in (SDL's
+// base path in an app is its Contents/Resources)
+std::string program_folder()
+{
+	const char *base = SDL_GetBasePath();
+	std::string b = base ? base : "";
+	const std::string in_app = ".app/Contents/Resources/";
+	if (b.size() > in_app.size() && b.compare(b.size() - in_app.size(), in_app.size(), in_app) == 0) {
+		b.resize(b.size() - in_app.size());   // (".../Virtua Fighter 2 Recomp")
+		b.resize(b.find_last_of('/') + 1);
+	}
+	return b;
+}
+// Portable mode, as the player asks for it: a file named portable.txt beside the program (its name
+// as found, else null). Any contents; "portable" and Windows' portable.txt.txt (a New Text Document
+// renamed with its extension hidden) count too.
+const char *portable_marker(const std::string &folder)
+{
+	if (folder.empty()) return nullptr;
+	std::error_code ec;
+	for (const char *name : { "portable.txt", "portable", "portable.txt.txt" })
+		if (std::filesystem::is_regular_file(folder + name, ec)) return name;
+	return nullptr;
 }
 // The picture's shapes, as --aspect names them and F6 steps through them (vf1-recomp's): 0 follows
 // the window's shape
@@ -354,8 +428,20 @@ uint64_t fnv(const void *p, size_t n, uint64_t h = 1469598103934665603ull)
 // scale 0: none chosen yet (the one that fits the window).
 struct settings
 {
-	int scale = 0, aspect = 0, volume = 100, music = 20, effects = 100, aa = 1, filter = 0, ring = 0;
+	int scale = 0, aspect = 0, volume = 100, music = 50, effects = 100, aa = 1, filter = 0, ring = 0;
 	int pipelined_at = 0;
+	// settings.ini's version: 2 from v0.1.2 (none before). Its upgrades, once, as it's read:
+	//   2: the old default music volume, 20, to the new one, 50 (the music's stereo reverb mended:
+	//      at 20 it's now too quiet); a 20 chosen later is kept (the file then says version 2)
+	static constexpr int VERSION = 2;
+	int version = VERSION;
+	bool upgraded = false;   // (an upgrade made as it was read: saved at once)
+	// the 3D's renderer (Display > 3D renderer): 0 the CPU, 1 the GPU, 2 Auto (whichever is faster
+	// here); the GPU's quality (0 exact, 1 fast); and Auto's choices so far on this machine, by
+	// scale and antialiasing ("3x1:g 2x1:c": a start there starts on that one, then checks it)
+	int renderer3d = 2, gpu_quality = 0;
+	std::string auto3d;
+	std::string roms_folder;   // where the player keeps vf2.zip (roms_folder = ...: kept as written)
 	int arcade_coin = -2;   // the arcade way's coin setting, kept while the PC way has FREE PLAY in its place (-1: none to give back; -2: none kept yet)   // the render scale this machine needed pipelining at (the governor's, kept: a start there starts pipelined)
 	bool fullscreen = false, timings = false, arcade = false, smooth_bg = false, show_fps = false, smooth = true;
 	player_controls ctl[2] = { player_controls::defaults(0), player_controls::defaults(1) };
@@ -365,9 +451,9 @@ struct settings
 		FILE *f = fopen(path.c_str(), "r");
 		if (!f) return;
 		std::map<std::string, std::string> kv;
-		char line[256], key[64], val[160];
+		char line[1100], key[64], val[1024];
 		while (fgets(line, sizeof line, f))
-			if (sscanf(line, " %63[a-z0-9_] = %159[^\r\n]", key, val) == 2) kv[key] = val;
+			if (sscanf(line, " %63[a-z0-9_] = %1023[^\r\n]", key, val) == 2) kv[key] = val;
 		fclose(f);
 		auto num = [&](const char *k, int &v, int lo, int hi) {
 			auto it = kv.find(k);
@@ -379,10 +465,21 @@ struct settings
 		num("volume", volume, 0, 100);
 		num("antialiasing", aa, 0, 3);   // 1 off, 0 Low (the 3D's edges smoothed: older builds read 0 as off), 2 and 3 drawn larger
 		num("music_volume", music, 0, 100);
+		version = 0;
+		num("settings_version", version, 0, 1000);
+		if (version < 2 && music == 20) {
+			music = 50; upgraded = true;
+			fprintf(stderr, "settings: the music volume 20 (the old default) moved to 50, the new one\n");
+		}
+		version = VERSION;
 		num("effects_volume", effects, 0, 100);
 		num("screen_filter", filter, 0, 2);
 		num("ring_size", ring, 0, 1600);
 		num("pipelined_at", pipelined_at, 0, MAX_SCALE);
+		num("renderer_3d", renderer3d, 0, 2);
+		num("gpu_quality", gpu_quality, 0, 1);
+		if (auto it = kv.find("auto_3d"); it != kv.end()) auto3d = it->second;
+		if (auto it = kv.find("roms_folder"); it != kv.end()) roms_folder = it->second;
 		num("arcade_coins", arcade_coin, -2, 0x18);
 		if (ring && (ring < 1300 || ring % 100)) ring = 0;   // 0: by difficulty
 		flag("fullscreen", fullscreen);
@@ -400,9 +497,12 @@ struct settings
 		FILE *f = fopen(tmp.c_str(), "w");
 		if (!f) return;
 		fprintf(f, "# Virtua Fighter 2 settings (the in-game menu writes these)\n");
+		fprintf(f, "settings_version = %d\n", version);
 		fprintf(f, "scale = %d\npicture_shape = %d\nfullscreen = %d\nframe_timings = %d\nvolume = %d\narcade_mode = %d\n"
 				"background_filter = %d\nmusic_volume = %d\neffects_volume = %d\nantialiasing = %d\nshow_fps = %d\nscreen_filter = %d\nring_size = %d\nsmooth_motion = %d\npipelined_at = %d\narcade_coins = %d\n", scale, aspect,
 				int(fullscreen), int(timings), volume, int(arcade), int(smooth_bg), music, effects, aa, int(show_fps), filter, ring, int(smooth), pipelined_at, arcade_coin);
+		fprintf(f, "renderer_3d = %d\ngpu_quality = %d\nauto_3d = %s\n", renderer3d, gpu_quality, auto3d.c_str());
+		if (!roms_folder.empty()) fprintf(f, "roms_folder = %s\n", roms_folder.c_str());
 		for (int p = 0; p < 2; p++) ctl[p].save(f, p);
 		const bool flushed = flush_to_disk(f);
 		if (fclose(f) == 0 && flushed) replace_file(path, tmp);
@@ -414,12 +514,28 @@ struct settings
 // data folder's roms/ yet, so ask for MAME's vf2.zip with a file picker, check it, and copy it in.
 // Only roms/vf2.zip is ever read, so a roms folder shared with other games can't get in the way.
 // False if they cancel (or there's no way to pick a file: then they're told where to put it).
-bool first_launch(const std::string &data, romset::result &out)
+// The player's ROM folder (--roms, VF2_ROMS or settings.ini's roms_folder: `folder`) is looked in
+// first and only read; without vf2.zip there, the data folder's roms/ next; a set chosen with the
+// picker then is copied into the ROM folder (where the next start looks), not the data folder.
+bool first_launch(const std::string &data, const std::string &folder, romset::result &out)
 {
 	namespace fs = std::filesystem;
-	const fs::path roms = fs::path(data) / "roms", zip = roms / "vf2.zip";
+	const fs::path own = fs::path(data) / "roms";
+	const fs::path roms = folder.empty() ? own : fs::path(folder), zip = roms / "vf2.zip";
 	std::error_code ec;
 	std::string problem;
+	if (!folder.empty()) {
+		if (fs::is_regular_file(zip, ec)) fprintf(stderr, "the game from the ROM folder %s\n", roms.string().c_str());
+		else {
+			fprintf(stderr, "ROM folder: no vf2.zip in %s%s: looking in %s next\n", roms.string().c_str(),
+					fs::is_directory(roms, ec) ? "" : " (no such folder)", own.string().c_str());
+			if (fs::is_regular_file(own / "vf2.zip", ec)) {
+				romset::result r = romset::load((own / "vf2.zip").string());
+				if (r.ok) { fprintf(stderr, "the game from %s\n", own.string().c_str()); out = std::move(r); return true; }
+				problem = r.error + "\n\n";
+			}
+		}
+	}
 	if (fs::is_regular_file(zip, ec)) {
 		romset::result r = romset::load(zip.string());
 		if (r.ok) { out = std::move(r); return true; }
@@ -434,7 +550,7 @@ bool first_launch(const std::string &data, romset::result &out)
 	const std::string where = "It's copied into " + roms.string() + ", so you only do this once.";
 	std::string note = problem + "Choose your copy of Virtua Fighter 2: MAME's \"vf2\" set (vf2.zip, Version 2.1).\n\n" + where;
 	for (;;) {
-		if (!SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, title, note.c_str(), nullptr)) return false;
+		if (!message_box(SDL_MESSAGEBOX_INFORMATION, title, note)) return false;
 		struct pick { bool done = false, failed = false; std::vector<std::string> files; } chosen;
 		static const SDL_DialogFileFilter filters[] = { { "MAME ROM sets (zip)", "zip" } };
 		SDL_ShowOpenFileDialog([](void *ud, const char *const *list, int) {
@@ -448,7 +564,7 @@ bool first_launch(const std::string &data, romset::result &out)
 			fs::create_directories(roms, ec);
 			const std::string msg = "There's no file picker here. Put your vf2.zip in this folder, then start the game again:\n\n"
 									+ roms.string();
-			SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, title, msg.c_str(), nullptr);
+			message_box(SDL_MESSAGEBOX_INFORMATION, title, msg);
 			return false;
 		}
 		if (chosen.files.empty()) return false;
@@ -482,9 +598,12 @@ int main(int argc, char **argv)
 	// the command line wins over settings.ini (in the data folder)
 	bool arg_arcade = false, sound = true, show_boot = false, no_scene_sync = false, arg_interp = false;
 	int arg_music = -1, arg_effects = -1, arg_volume = -1, arg_scale = 0, arg_aspect = -1, arg_full = -1;
+	std::string arg_roms;   // --roms <folder>: where the player's vf2.zip is (over VF2_ROMS and settings.ini's roms_folder)
 	for (int i = 1; i < argc; i++) {
 		const std::string a = argv[i];
 		if (a == "--arcade") arg_arcade = true;
+		else if (a == "--roms" && i + 1 < argc) arg_roms = argv[++i];
+		else if (a.rfind("--roms=", 0) == 0) arg_roms = a.substr(7);
 		else if (a == "--interp") arg_interp = true;   // MAME's i960 interpreter instead of the recompiled code
 		else if (a == "--fullscreen") arg_full = 1;
 		else if (a == "--window") arg_full = 0;
@@ -500,7 +619,14 @@ int main(int argc, char **argv)
 		else if (a == "--show-boot") show_boot = true;
 		else if (a == "--no-scene-sync") no_scene_sync = true;
 		else if (a.rfind("--", 0) == 0) { fprintf(stderr, "unknown option %s\n", a.c_str()); return 2; }
-		else zip = a;
+		else if (a.rfind("-psn_", 0) == 0) {}   // (an old macOS's Finder adds its process number)
+		else {
+			// a zip named on the command line: one that's there (a stray word, say a value after an
+			// option that takes none, used to be tried as the zip and its error shown in a dialog)
+			std::error_code ec;
+			if (!std::filesystem::is_regular_file(a, ec)) { fprintf(stderr, "%s: no such file (options start with --)\n", a.c_str()); return 2; }
+			zip = a;
+		}
 	}
 	const bool hidden = getenv("VF2_HIDDEN") != nullptr;
 	const int64_t quit_after = getenv("VF2_QUIT_AFTER") ? atoll(getenv("VF2_QUIT_AFTER")) : -1;
@@ -513,8 +639,7 @@ int main(int argc, char **argv)
 
 	auto fail = [](const std::string &what) {
 		fprintf(stderr, "%s\n", what.c_str());
-		if (!getenv("VF2_HIDDEN"))   // (a test run: stderr and log.txt only, never a dialog)
-			SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Virtua Fighter 2", what.c_str(), nullptr);
+		if (!getenv("VF2_HIDDEN")) message_box(SDL_MESSAGEBOX_ERROR, "Virtua Fighter 2", what);   // (a test run: stderr and log.txt only)
 		return 1;
 	};
 
@@ -523,13 +648,18 @@ int main(int argc, char **argv)
 	std::error_code ec;
 	std::string data = getenv("VF2_DATA") ? getenv("VF2_DATA") : "";
 	bool players = false;
+	const std::string home = program_folder();
+	const char *portable = portable_marker(home);
 	if (zip.empty()) {
 		const char *base = SDL_GetBasePath();
 		const std::string here = base ? base : "";
-		if (!here.empty() && std::filesystem::is_directory(here + "roms", ec)) {   // portable
+		if (portable) {   // portable mode: everything in the program's folder, nothing anywhere else
+			if (data.empty()) data = home;
+			players = true;
+		} else if (!here.empty() && std::filesystem::is_directory(here + "roms", ec)) {   // a roms folder beside it (the Steam Deck's)
 			if (data.empty()) data = here;
 			players = true;
-		} else if (std::filesystem::is_regular_file("roms/vf2.zip", ec)) zip = "roms/vf2.zip";   // the source tree
+		} else if (arg_roms.empty() && !getenv("VF2_ROMS") && std::filesystem::is_regular_file("roms/vf2.zip", ec)) zip = "roms/vf2.zip";   // the source tree
 		else {
 			if (data.empty()) {
 				char *pref = SDL_GetPrefPath(nullptr, "Virtua Fighter 2 Recomp");
@@ -549,6 +679,11 @@ int main(int argc, char **argv)
 		std::filesystem::create_directories(data, ec);
 		if (freopen((data + "/log.txt").c_str(), "w", stderr)) setvbuf(stderr, nullptr, _IONBF, 0);
 	}
+	sysinfo::tune();
+	fprintf(stderr, "Virtua Fighter 2 Recomp %s (%s) on %s\n", VF2_VERSION, VF2_DATE, sysinfo::describe().c_str());
+	if (portable) fprintf(stderr, "portable (%s beside the program): everything in %s\n", portable, data.c_str());
+	else if (home.find("/AppTranslocation/") != std::string::npos)   // (macOS runs a downloaded app from a hidden copy until it's moved)
+		fprintf(stderr, "run from macOS's hidden copy of the app (App Translocation): a portable.txt beside it isn't seen until the app is moved with the Finder\n");
 	const std::string settings_path = data + "/settings.ini";
 	settings cfg;
 	bool cfg_dirty = false;      // saved (as the menu closes, and at exit) only when the player changed something
@@ -559,6 +694,7 @@ int main(int argc, char **argv)
 	// then the command line, win.
 	if (getenv("SteamDeck")) { cfg.fullscreen = true; cfg.aspect = 2; cfg.scale = 2; }
 	cfg.load(settings_path);
+	if (cfg.upgraded) cfg.save(settings_path);   // (once: a 20 chosen later is the player's)
 	if (arg_scale) cfg.scale = arg_scale;
 	if (arg_aspect >= 0) cfg.aspect = arg_aspect;
 	if (arg_full >= 0) cfg.fullscreen = arg_full;
@@ -567,13 +703,26 @@ int main(int argc, char **argv)
 	if (arg_effects >= 0) cfg.effects = arg_effects;
 	if (arg_volume >= 0) cfg.volume = arg_volume;
 	g_pc_mode = !cfg.arcade;
+#ifdef VF2_GPU3D_METAL
+	{   // the GPU's 3D started while the game boots, if it'll be wanted (its shaders compiled meanwhile)
+		const char *e = getenv("VF2_3D");
+		if (e ? strcmp(e, "cpu") != 0 : cfg.renderer3d != 0) gpu3d_metal_prewarm();
+	}
+#endif
 	const bool arcade_start = cfg.arcade;   // (the play style as the game started: the menu's change restarts it in the other)
 	int aspect_i = cfg.aspect;
 	const bool fullscreen = cfg.fullscreen;
 
 	romset::result roms;
 	if (players) {
-		if (!first_launch(data, roms)) return 0;
+		// the player's ROM folder: the command line's, else VF2_ROMS, else settings.ini's
+		std::string roms_folder, from;
+		if (!arg_roms.empty()) roms_folder = player_folder(arg_roms), from = "--roms";
+		else if (const char *e = getenv("VF2_ROMS"); e && *e) roms_folder = player_folder(e), from = "VF2_ROMS";
+		else if (!cfg.roms_folder.empty()) roms_folder = player_folder(cfg.roms_folder, data), from = "settings.ini";
+		if (!roms_folder.empty()) fprintf(stderr, "ROM folder (%s): %s\n", from.c_str(), roms_folder.c_str());
+		else fprintf(stderr, "ROM folder: %s\n", (std::filesystem::path(data) / "roms").string().c_str());
+		if (!first_launch(data, roms_folder, roms)) return hidden ? 1 : 0;   // (a test run without the game: an error)
 	} else {
 		roms = romset::load(zip);
 		if (!roms.ok) return fail(roms.error);
@@ -705,7 +854,23 @@ int main(int argc, char **argv)
 	if (!win) return fail(std::string("Couldn't open the window: ") + SDL_GetError());
 	SDL_HideCursor();
 	int focus_checks = 600;   // about 5 s: going fullscreen on a Mac moves to a new Space, which takes a while
-	SDL_Renderer *ren = SDL_CreateRenderer(win, nullptr);
+	SDL_Renderer *ren = nullptr;
+#ifdef VF2_GPU3D_SDL
+	// The 3D on the GPU wanted (Auto or GPU, the setting or VF2_3D): SDL's "gpu" renderer (Direct3D
+	// 12 on Windows, Vulkan on Linux and the Deck), whose device the 3D's compute shares, its
+	// pictures its textures. Else, or if it can't start here, SDL's usual one (and the CPU's 3D).
+	// (SDL_RENDER_DRIVER, SDL's own, chooses over this.)
+	{
+		const char *e = getenv("VF2_3D");
+		if ((e ? strcmp(e, "cpu") != 0 : cfg.renderer3d != 0) && !getenv("SDL_RENDER_DRIVER")) {
+			const auto t0 = std::chrono::steady_clock::now();
+			ren = SDL_CreateRenderer(win, "gpu");
+			if (!ren) fprintf(stderr, "SDL's gpu renderer: %s (SDL's usual renderer, the CPU's 3D)\n", SDL_GetError());
+			else fprintf(stderr, "SDL's gpu renderer started in %.0f ms\n", std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
+		}
+	}
+#endif
+	if (!ren) ren = SDL_CreateRenderer(win, nullptr);
 	if (!ren) return fail(std::string("Couldn't start the graphics: ") + SDL_GetError());
 	SDL_SetRenderVSync(ren, 1);
 	// The picture's shape: the chosen one, or the window's (fit: between 4:3 and 32:9)
@@ -790,7 +955,12 @@ int main(int argc, char **argv)
 			if (auto get = reinterpret_cast<const unsigned char *(*)(unsigned)>(SDL_GL_GetProcAddress("glGetString")))
 				gl = reinterpret_cast<const char *>(get(0x1F01));   // GL_RENDERER
 		if (gl) fprintf(stderr, "OpenGL: %s\n", gl);
-		deck = getenv("SteamDeck") || (gl && strstr(gl, "vangogh"));   // (a Steam Deck's GPU, Steam or not)
+		// (SDL's gpu renderer: the device's name, as GL_RENDERER: Mesa's llvmpipe is Vulkan drawn on the CPU)
+		if (SDL_GPUDevice *gd = name && !strcmp(name, "gpu") ? SDL_GetGPURendererDevice(ren) : nullptr) {
+			gl = SDL_GetStringProperty(SDL_GetGPUDeviceProperties(gd), SDL_PROP_GPU_DEVICE_NAME_STRING, nullptr);
+			fprintf(stderr, "SDL_GPU: %s, %s\n", SDL_GetGPUDeviceDriver(gd), gl ? gl : "?");
+		}
+		deck = getenv("SteamDeck") || (gl && (strstr(gl, "vangogh") || strstr(gl, "VANGOGH")));   // (a Steam Deck's GPU, Steam or not)
 		const bool soft_gl = gl && (strstr(gl, "llvmpipe") || strstr(gl, "softpipe") || strstr(gl, "Software") || strstr(gl, "SwiftShader"));
 		gpu.on = g ? atoi(g) != 0 : !(name && !strcmp(name, "software")) && !soft_gl;
 		gpu.any_scale = g && atoi(g) == 1;
@@ -811,39 +981,386 @@ int main(int argc, char **argv)
 	bool lock_across = false;
 	if (const char *n = SDL_GetRendererName(ren))
 		for (const char *ok : { "metal", "opengl", "opengles2", "software" }) lock_across |= !strcmp(n, ok);
+	// The board draws straight into a locked texture only on those same renderers, where a lock
+	// hands out memory of the host's own (Metal's shared memory, SDL's buffer for OpenGL, the
+	// software renderer's surface). Direct3D 11 makes a new staging texture at each lock (a
+	// fresh allocation, its pages faulted in by the drawing threads, in memory the CPU writes
+	// through uncached on most cards), Direct3D 12 and Vulkan a new upload buffer: drawing a
+	// picture there, smooth motion's 3D or the whole picture on the CPU's way (antialiasing Low
+	// reading it back), went at a fraction of its speed, the more so the higher the scale
+	// (vf2-recomp #3: an i9-14900KF short of pictures from 2x). There, as vf1-recomp always does,
+	// the picture is drawn in the host's memory, then copied into the texture on every core
+	// (send_rows: on Direct3D 11 into the texture itself, mapped, d3d11_map.h). The same pixels
+	// either way. VF2_DRAW_LOCKED=0 or 1 (tests) chooses.
+	bool draw_locked = lock_across;
+	if (const char *d = getenv("VF2_DRAW_LOCKED")) draw_locked = atoi(d) != 0;
 	std::vector<uint32_t> async_buf;   // (else: the picture drawn alongside, until it's sent up)
 	bool async_in_buf = false;
 	auto gpu_free = [&] { gpu_pic.free(); gpu.shown = false; };
-	// (drawn alongside where textures can vanish: the 3D into the host's memory, not left where
-	// the board drew it, which its next frame may draw over before it's sent up)
+	// (drawn alongside where textures can vanish, or anywhere the board doesn't draw into a
+	// locked texture: the 3D into the host's memory, not left where the board drew it, which its
+	// next frame may draw over before it's sent up)
 	std::vector<u32> gpu_buf;
 	bool gpu_in_buf = false;
 	auto gpu_lock = [&](u32 *&px, size_t &stride, bool across) {
 		px = nullptr; stride = 0;
 		gpu_in_buf = false;
-		if (across && !lock_across) {
+		if ((across && !lock_across) || (!draw_locked && gpu_lock3d)) {
 			const size_t W = size_t(m.width()) * m.render_scale();
 			if (gpu_buf.size() != W * model2a::HEIGHT * m.render_scale()) gpu_buf.assign(W * model2a::HEIGHT * m.render_scale(), 0);
 			px = gpu_buf.data(); stride = W; gpu_in_buf = true;
 		} else if (gpu_lock3d) gpu_pic.lock(m.width(), m.render_scale(), px, stride);
 	};
-	auto gpu_unlock = [&] { gpu_pic.unlock(); };
-	auto gpu_put = [&](const model2a::picture_parts &p) -> bool {
+	auto gpu_unlock = [&] { gpu_pic.unlock(); gpu_in_buf = false; };
+	auto gpu_put = [&](model2a::picture_parts &p) -> bool {
+		if (gpu_in_buf) {   // (the 3D drawn into the host's memory: sent up from there)
+			p.map3d = gpu_buf.data(); p.map_stride = size_t(p.w) * p.s;
+			gpu_in_buf = false;
+		}
 		if (!gpu_pic.put(p)) return false;   // (no textures that size here: checked before drawing, gpu_pic.ready)
 		gpu.shown = true;
 		return true;
 	};
+	// ---- The 3D on the GPU (src/gpu/gpu3d.h; Display > 3D renderer) ----
+	// The board hands the GPU its 3D's list (model2a::render_parts' gpu3d hook) in place of drawing
+	// it on the CPU; the GPU draws it into one of three textures of the renderer's (a shared surface:
+	// nothing copied back), which the 2D's parts are put together around (gpu_picture), as the
+	// CPU's 3D is. The same pixels as the CPU's (gpu3d_quality::exact), with smooth motion, the wide
+	// pictures' sides and every scale; antialiasing 2x and 3x draw it larger and average it down
+	// on the GPU (each block's share drawn its alpha, put over the 2D premultiplied: the CPU's
+	// averaging of the whole picture, where the 2D beneath is one colour across a block, as it is
+	// but at a moved backdrop's edges), Low smooths its edges there as the CPU's does (edge_smooth's
+	// sums, the 2D beneath from the parts). A 4:3 screen in a wide picture (its sides go by the 3D's
+	// edges) and render test mode are drawn on the CPU. Metal only for now (Macs).
+	//
+	// Auto (the choice of the faster here): before the first picture, unseen, both draw a made-up
+	// scene the size of a fight's (model2_video::bench_make) at the scale and antialiasing in use,
+	// a few times each (the GPU's first ones its warm-up: its shaders and buffers made then, not in
+	// play); the GPU is taken if it's clearly quicker (under 85% of the CPU's time; once on it, it
+	// stays while it's no slower). Checked again, on the game's own scene, when the scale,
+	// antialiasing or shape change and when the governor finds the pictures short, but only at a
+	// moment nothing moves on screen (the menu, paused, a scene change held by scene sync), where a
+	// switch can't be seen either. What it found is kept per scale and antialiasing (settings.ini's
+	// auto_3d), so a later start begins there (and checks it again). Any GPU error: the CPU from
+	// then on, for this run.
+	//   VF2_3D=cpu|gpu|auto  the renderer, over the setting; VF2_GPU3D_FAST=1 the fast quality
+	//   VF2_GPU3D_SLOW=n     tests: the GPU's drawing done n times over (a slow GPU)
+	//   VF2_GPU3D_CHECK=n    every n-th GPU picture also drawn on the CPU and compared (the log)
+	//   VF2_AUTO_RECHECK=p,..  Auto checked again from these passes on (at the next quiet moment;
+	//                        VF2_AUTO_ANYTIME=1: at once, wherever it is: tests of its numbers)
+	enum { R3D_CPU, R3D_GPU, R3D_AUTO };
+	static const char *R3D_NAMES[] = { "CPU", "GPU", "Auto" };
+	constexpr int G3_TARGETS = 5;   // (see gpu3d_state::tex)
+	struct gpu3d_state {
+		std::unique_ptr<gpu3d> dev;
+		int mode = R3D_CPU;         // the player's choice (or VF2_3D's)
+		bool on = false;            // drawing on the GPU now
+		bool failed = false;        // an error: the CPU for this run
+		bool forced_mode = false;
+		bool tried = false;         // the GPU's renderer started (dev, or none here)
+		bool next_start = false;    // none now, but there will be at the next start (SDL_GPU: the renderer's chosen as the game starts)
+		int verify = 0;             // SDL_GPU: its pictures still to be checked against the CPU's (1 the test scene's, 2 the game's own)
+		// The GPU's pictures go into G3_TARGETS targets in turn, read by the renderer (SDL's own
+		// queue, which Metal doesn't order against ours) when it puts the picture together. The
+		// renderer may still have up to three frames on the way; pipelined, a picture is put together
+		// a pass after it's drawn: five, so a target is never drawn into again before its frame is done.
+		SDL_Texture *tex[G3_TARGETS] = {};
+		int w = 0, h = 0, next = 0, pending_t = -1, pending_ss = 1;
+		bool pending = false;       // a picture drawn alongside the next frame (pipelined)
+		std::vector<gpu3d_poly> list;
+		gpu3d_rams rams;
+		gpu3d_frame frame;
+		// Auto
+		struct bench {
+			bool active = false, real = false, ready = false;   // (ready: its turns done, the choice to make)
+			double last_turn = 0;
+			int i = 0, reps = 3, scale = 0, aa = 0, parts = 1, band = 0;
+			double cur_c = 0;
+			double best_g = 1e30, best_c = 1e30, gpu_only = 1e30, took = 0;
+			std::string why;
+			gpu3d_frame f;
+		} b;                             // a check under way
+		double cpu_ms = 0, gpu_ms = 0;   // the last check's (ms a picture)
+		double gpu_only_ms = 0;          // (of which the GPU's own time)
+		const char *checked_on = "";     // its scene
+		bool recheck = false;
+		std::string recheck_why;
+		uint64_t last_check = 0;
+		std::vector<int64_t> recheck_at;
+		bool anytime = getenv("VF2_AUTO_ANYTIME") != nullptr;   // (tests: checked at once, not at a quiet moment)
+		bool want_real = false;   // the start's check was of the test scene: once more on a fight's
+		// in play: the GPU's pictures, its time and the CPU's setting them up
+		double sum_gpu = 0, sum_cpu = 0; uint64_t pictures = 0;
+		// VF2_GPU3D_CHECK
+		int check_every = 0;
+		uint64_t checked = 0, check_px = 0, check_diff = 0, check_bad = 0;
+		int check_max = 0;
+		struct shown_count { uint64_t checked = 0, px = 0, diff = 0, bad = 0; int most = 0, saved = 0; } shown[2];   // (as put together for the screen: read back at once, later)
+		int ref_w = 0, ref_h = 0, late_w = 0, late_h = 0, late_wait = 0;
+		bool late_smooth = false;
+		SDL_Texture *late = nullptr;
+		std::vector<uint32_t> late_ref;
+		bool ref_pending = false, ref_smooth = false;
+		std::vector<uint32_t> ref;
+		std::vector<u32> check_cpu, check_gpu;
+	} g3;
+	{
+		const char *e = getenv("VF2_3D");
+		g3.mode = cfg.renderer3d;
+		if (e) { g3.forced_mode = true; g3.mode = !strcmp(e, "gpu") ? R3D_GPU : !strcmp(e, "auto") ? R3D_AUTO : R3D_CPU; }
+		if (const char *c = getenv("VF2_GPU3D_CHECK")) g3.check_every = std::max(0, atoi(c));
+		if (const char *r = getenv("VF2_AUTO_RECHECK"))
+			for (const char *q = r; *q; ) { g3.recheck_at.push_back(atoll(q)); while (*q && *q != ',') q++; if (*q) q++; }
+	}
+	// the GPU's renderer started (its shaders compiled) when first wanted: not at all for the CPU's
+	auto g3_start = [&] {
+		if (g3.dev || g3.tried) return;
+		g3.tried = true;
+		const auto t0 = std::chrono::steady_clock::now();
+		const char *rn = SDL_GetRendererName(ren);
+#ifdef VF2_GPU3D_METAL
+		if (rn && !strcmp(rn, "metal"))
+			if (void *layer = SDL_GetRenderMetalLayer(ren)) g3.dev = gpu3d_create_metal_layer(layer);
+#endif
+#ifdef VF2_GPU3D_SDL
+		// (on SDL's gpu renderer's device, its pictures checked against the CPU's before they're
+		// trusted: the start's test scene, then the game's own; any difference, the CPU's 3D)
+		if (rn && !strcmp(rn, "gpu")) {
+			if (SDL_GPUDevice *gd = SDL_GetGPURendererDevice(ren)) g3.dev = gpu3d_create_sdlgpu(gd);
+			g3.verify = g3.dev ? 2 : 0;
+		} else if (!getenv("SDL_RENDER_DRIVER")) g3.next_start = true;
+#endif
+		if (g3.dev) {
+			g3.dev->set_quality(cfg.gpu_quality || getenv("VF2_GPU3D_FAST") ? gpu3d_quality::fast : gpu3d_quality::exact);
+			if (const char *sl = getenv("VF2_GPU3D_SLOW")) g3.dev->test_repeat = std::max(1, atoi(sl));
+		}
+		fprintf(stderr, "the 3D on the GPU: %s (%.0f ms to start)\n", g3.dev ? g3.dev->name() : g3.next_start ? "from the next start (the CPU's 3D)" : "no GPU renderer for it here (the CPU's 3D)",
+				std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
+	};
+	fprintf(stderr, "the 3D: %s%s\n", R3D_NAMES[g3.mode], g3.forced_mode ? " (VF2_3D)" : "");
+	if (g3.mode != R3D_CPU) g3_start();
+	auto g3_free = [&] {
+		if (g3.dev) g3.dev->finish();
+		for (SDL_Texture *&t : g3.tex) if (t) { SDL_DestroyTexture(t); t = nullptr; }
+		g3.w = g3.h = 0;
+		g3.pending = false;
+	};
+	auto g3_fail = [&](const char *why) {
+		fprintf(stderr, "the 3D on the GPU: %s: on the CPU from now on\n", why);
+		g3.failed = true; g3.on = false;
+		g3_free();
+	};
+	// the targets, the picture's size (false: none here, the CPU's 3D)
+	auto g3_targets = [&](int w, int h) -> bool {
+		if (g3.w == w && g3.h == h && g3.tex[0]) return true;
+		g3_free();
+		if (!g3.dev->make_targets(w, h, G3_TARGETS)) { g3_fail("no targets that size"); return false; }
+		for (int i = 0; i < G3_TARGETS; i++) {
+			SDL_PropertiesID pr = SDL_CreateProperties();
+			SDL_SetNumberProperty(pr, SDL_PROP_TEXTURE_CREATE_FORMAT_NUMBER, g3.dev->targets_rgba() ? SDL_PIXELFORMAT_ABGR8888 : SDL_PIXELFORMAT_ARGB8888);
+			SDL_SetNumberProperty(pr, SDL_PROP_TEXTURE_CREATE_ACCESS_NUMBER, SDL_TEXTUREACCESS_STATIC);
+			SDL_SetNumberProperty(pr, SDL_PROP_TEXTURE_CREATE_WIDTH_NUMBER, w);
+			SDL_SetNumberProperty(pr, SDL_PROP_TEXTURE_CREATE_HEIGHT_NUMBER, h);
+#ifdef VF2_GPU3D_SDL
+			SDL_SetPointerProperty(pr, SDL_PROP_TEXTURE_CREATE_GPU_TEXTURE_POINTER, g3.dev->target_handle(i));
+#else
+			SDL_SetPointerProperty(pr, SDL_PROP_TEXTURE_CREATE_METAL_PIXELBUFFER_POINTER, g3.dev->target_handle(i));
+#endif
+			g3.tex[i] = SDL_CreateTextureWithProperties(ren, pr);
+			SDL_DestroyProperties(pr);
+			if (!g3.tex[i]) { fprintf(stderr, "the 3D on the GPU: %s\n", SDL_GetError()); g3_fail("the renderer won't show its targets"); return false; }
+			SDL_SetTextureBlendMode(g3.tex[i], SDL_BLENDMODE_BLEND_PREMULTIPLIED);
+			SDL_SetTextureScaleMode(g3.tex[i], SDL_SCALEMODE_NEAREST);
+		}
+		g3.w = w; g3.h = h;
+		return true;
+	};
+	// a picture's list handed to the GPU (render_parts' hook: the RAMs as its frame left them)
+	auto g3_submit = [&](model2_video &v, int pic, int target) -> bool {
+		v.export_picture(pic, g3.list);
+		v.gpu_rams(g3.rams);
+		g3.dev->set_rams(g3.rams);
+		const model2a::picture_parts &p = gpu.parts;
+		gpu3d_frame &f = g3.frame;
+		f.w = m.width() * scale; f.h = model2a::HEIGHT * scale;
+		f.scale = scale; f.ss = aa_now();
+		f.edge = aa == 0 && f.ss == 1;
+		f.backdrop = p.backdrop; f.mid = p.mid; f.w2d = p.w; f.pad = model2a::picture_parts::PAD;
+		f.bdx = p.bdx; f.bdy = p.bdy; f.filter = p.filter; f.version2d = p.version;
+		if (!g3.dev->submit(g3.list.data(), g3.list.size(), f, target)) { g3_fail("a picture couldn't be drawn"); return false; }
+		return true;
+	};
+	// the GPU's picture finished (its timings counted)
+	auto g3_finish = [&]() -> bool {
+		if (!g3.dev || !g3.dev->busy()) return !g3.failed;
+		double gms = 0, cms = 0;
+		if (!g3.dev->finish(&gms, &cms)) { g3_fail("a picture failed on the GPU"); return false; }
+		g3.sum_gpu += gms; g3.sum_cpu += cms; g3.pictures++;
+		return true;
+	};
+	// Auto's check: the CPU's and the GPU's time for a picture (ms: the GPU's from handing it over
+	// to finished, the quickest after two to warm up; the CPU's on every core, the quickest), of the
+	// game's own scene (the picture shown) if it has a fight's polygons, else the made-up one. Its
+	// pictures go nowhere the game shows. In turns (g3_bench_step: one picture each way, a few ms),
+	// so that a check in play is spread over the quiet passes; a moment of other work on the machine
+	// falls on both alike.
+	auto g3_bench_begin = [&](const char *why, bool real, int parts) {
+		model2_video &v = m.video();   // (waits for a picture drawn alongside)
+		int pic = real ? v.shown_index() : -1;
+		if (pic >= 0 && v.polygons_shown() < 400) pic = -1;
+		if (pic >= 0) v.bench_take(pic); else v.bench_make(1500);
+		g3.checked_on = pic >= 0 ? "the game's scene" : "a test scene";
+		v.bench_export(g3.list);
+		v.gpu_rams(g3.rams);
+		g3.dev->set_rams(g3.rams);
+		auto &b = g3.b;
+		b = {};
+		b.active = true; b.why = why; b.real = real; b.scale = scale; b.aa = aa; b.parts = std::clamp(parts, 1, 32);
+		b.f.w = m.width() * scale; b.f.h = model2a::HEIGHT * scale; b.f.scale = scale; b.f.ss = aa_now();
+	};
+	// (a turn: the GPU's picture, then the CPU's a band of rows at a time, b.parts of them, their
+	// times added up: each step a millisecond or so, for a pass with time to spare)
+	auto g3_bench_step = [&]() -> bool {   // true: done (or given up: b.active false)
+		auto &b = g3.b;
+		if (b.scale != scale || b.aa != aa || b.f.w != m.width() * scale) { const std::string why = b.why; g3_bench_begin(why.c_str(), b.real, b.parts); }   // (a new size meanwhile: again)
+		model2_video &v = m.video();
+		using clk = std::chrono::steady_clock;
+		const auto t0 = clk::now();
+		if (b.band == 0) {
+			double gms = 0;
+			if (!g3.dev->submit(g3.list.data(), g3.list.size(), b.f, -1) || !g3.dev->finish(&gms)) { b.active = false; g3_fail("a test picture failed"); return true; }
+			if (b.i >= 2) b.best_g = std::min(b.best_g, std::chrono::duration<double, std::milli>(clk::now() - t0).count()), b.gpu_only = std::min(b.gpu_only, gms);
+			b.cur_c = 0;
+			if (b.i == 0) { b.i++; b.took += std::chrono::duration<double, std::milli>(clk::now() - t0).count(); return false; }   // (the first: the GPU's warm-up alone)
+			b.band = 1;
+			if (b.parts > 1) { b.took += std::chrono::duration<double, std::milli>(clk::now() - t0).count(); return false; }
+		}
+		b.cur_c += v.bench_cpu(b.band - 1, b.parts);
+		b.took += std::chrono::duration<double, std::milli>(clk::now() - t0).count();
+		if (b.band++ < b.parts) return false;
+		b.band = 0;
+		b.best_c = std::min(b.best_c, b.cur_c);
+		return ++b.i >= b.reps + 2;
+	};
+	// Auto's choice kept per scale and antialiasing (settings.ini's auto_3d: "3x1:g 2x0:c")
+	auto auto_key = [&] { return std::to_string(scale) + "x" + std::to_string(aa) + ":"; };
+	auto auto_kept = [&]() -> int {   // 1 the GPU, 0 the CPU, -1 none kept
+		const std::string k = auto_key();
+		for (size_t at = 0; (at = cfg.auto3d.find(k, at)) != std::string::npos; at++)
+			if (at == 0 || cfg.auto3d[at - 1] == ' ') return at + k.size() < cfg.auto3d.size() && cfg.auto3d[at + k.size()] == 'g';
+		return -1;
+	};
+	auto auto_keep = [&](bool gpu_wins) {
+		const std::string k = auto_key();
+		std::string out;
+		for (size_t a = 0; a < cfg.auto3d.size();) {
+			size_t b = cfg.auto3d.find(' ', a);
+			if (b == std::string::npos) b = cfg.auto3d.size();
+			const std::string tok = cfg.auto3d.substr(a, b - a);
+			if (!tok.empty() && tok.compare(0, k.size(), k)) out += (out.empty() ? "" : " ") + tok;
+			a = b + 1;
+		}
+		out += (out.empty() ? "" : " ") + k + (gpu_wins ? "g" : "c");
+		if (out != cfg.auto3d) { cfg.auto3d = out; cfg_dirty = true; }
+	};
+	// The renderer for the scale and antialiasing now: the player's choice, or Auto's check (the
+	// GPU's warm-up too, whichever is chosen): its numbers in, the choice made
+	// SDL_GPU: the check's scene drawn once more each way, at once, and compared (render scale,
+	// before the 2D), pixel for pixel; a difference: the CPU's 3D from now on. Once on the start's
+	// test scene, once on the game's own (its textures).
+	auto g3_verify = [&]() -> bool {
+		auto &b = g3.b;
+		model2_video &v = m.video();
+		int w = 0, h = 0;
+		v.render_size(w, h);
+		std::vector<uint32_t> gp(size_t(w) * h);
+		auto differ = [&]() -> long long {
+			if (!g3.dev->read_picture(gp.data(), size_t(w))) return -1;
+			const bitmap_rgb32 &c = v.bench_picture();
+			if (c.width() != w || c.height() != h) return -1;
+			long long n = 0;
+			for (int y = 0; y < h; y++) {
+				const u32 *r = &c.pix(y);
+				const uint32_t *g = gp.data() + size_t(y) * w;
+				for (int x = 0; x < w; x++) n += (r[x] == 0) != (g[x] == 0) || ((r[x] ^ g[x]) & 0xffffff);
+			}
+			return n;
+		};
+		// (both drawn again now, from the check's list: the game's own pictures go through g3.list too,
+		// and its RAMs may have moved since the check's turns)
+		v.bench_export(g3.list);
+		v.gpu_rams(g3.rams);
+		g3.dev->set_rams(g3.rams);
+		if (!g3.dev->submit(g3.list.data(), g3.list.size(), b.f, -1) || !g3.dev->finish()) { g3_fail("a test picture failed"); return false; }
+		v.bench_cpu(0, 1);
+		const long long d = differ();
+		const bool game = !strcmp(g3.checked_on, "the game's scene");
+		if (d != 0) {
+			fprintf(stderr, "the 3D on the GPU: its picture of %s isn't the CPU's (%lld of %d x %d pixels differ)\n", g3.checked_on, d, w, h);
+			g3_fail("its pictures aren't the CPU's");
+			return false;
+		}
+		fprintf(stderr, "the 3D on the GPU: its picture of %s is the CPU's, pixel for pixel (%d x %d)\n", g3.checked_on, w, h);
+		if (game) g3.verify = 0;
+		return true;
+	};
+	auto g3_bench_done = [&] {
+		auto &b = g3.b;
+		if (g3.verify && !g3_verify()) { b.active = false; g3.recheck = false; return; }
+		b.active = false;
+		g3.recheck = false;
+		g3.cpu_ms = b.best_c; g3.gpu_ms = b.best_g; g3.gpu_only_ms = b.gpu_only;
+		const bool was = g3.on;
+		bool on = true;
+		if (g3.mode == R3D_AUTO) {
+			// the GPU unless it's clearly slower in a way that matters: over 1.5x the CPU's time and
+			// over 8 ms (half the frame's 17.4), the frame then at risk; back to it within 1.3x or
+			// under 6 ms (a GPU a little slower than a fast Mac's CPU, well inside the frame, is kept)
+			const double c = g3.cpu_ms, g = g3.gpu_ms;
+			on = was || !g3.last_check ? !(g > 1.5 * c && g > 8.0) : (g <= 1.3 * c || g < 6.0);
+			auto_keep(on);
+		}
+		g3.on = on;
+		g3.last_check = SDL_GetTicksNS();
+		if (g3.verify) { g3.recheck = g3.want_real = true; g3.recheck_why = "the game's own scene"; }   // (SDL_GPU: not yet checked on it)
+		fprintf(stderr, "the 3D (%s, %s): a picture %.2f ms on the CPU (%d threads), %.2f on the GPU (%.2f its own; %s, %s, %dx, antialiasing %s): on the %s%s; the check took %.0f ms in all\n",
+				R3D_NAMES[g3.mode], b.why.c_str(), g3.cpu_ms, row_pool::get().threads(), g3.gpu_ms, g3.gpu_only_ms, g3.dev->quality() == gpu3d_quality::exact ? "exact" : "fast", g3.checked_on, scale,
+				aa == 0 ? "Low" : aa_now() > 1 ? (aa_now() == 2 ? "2x" : "3x") : "off", on ? "GPU" : "CPU", on == was ? "" : " (switched)", b.took);
+	};
+	// ... all at once (the start, the menu: nothing moves on screen)
+	auto g3_decide = [&](const char *why, bool real) {
+		g3.recheck = false;
+		g3.b.active = false;
+		if (!g3.dev || g3.failed || g3.mode == R3D_CPU) {
+			if (g3.on || !g3.last_check) fprintf(stderr, "the 3D (%s, %s): on the CPU (%s)\n", R3D_NAMES[g3.mode], why,
+				g3.mode == R3D_CPU ? "the player's setting" : g3.failed ? "the GPU failed" : "no GPU 3D here");
+			g3.on = false; g3.last_check = SDL_GetTicksNS();
+			return;
+		}
+		g3_bench_begin(why, real, 1);
+		while (!g3_bench_step()) {}
+		if (g3.b.active) g3_bench_done();
+	};
+	std::function<void()> g3_check_shown;   // (VF2_GPU3D_CHECK: below)
 	auto finish_async = [&](bool show) -> bool {   // the picture being drawn: finished, and up next (or dropped)
 		if (!async_pending) return false;
 		m.render_wait();
 		async_pending = false;
+		if (g3.pending) {   // (the 3D on the GPU: finished, put together now)
+			g3.pending = gpu.pending = false;
+			const bool ok = g3_finish();
+			if (!show || !ok) { gpu_unlock(); return false; }
+			if (!gpu_pic.put(gpu.parts, gpu.parts.has3d ? g3.tex[g3.pending_t] : nullptr, g3.pending_ss)) return false;
+			g3_check_shown();
+			gpu.shown = true;
+			return true;
+		}
 		if (gpu.pending) {   // (the 2D on the GPU: the 3D drawn, put together now)
 			gpu.pending = false;
 			if (!show) { gpu_unlock(); return false; }
-			if (gpu_in_buf) { gpu.parts.map3d = gpu_buf.data(); gpu.parts.map_stride = size_t(gpu.parts.w) * gpu.parts.s; gpu_in_buf = false; }
-			return gpu_put(gpu.parts);
+			return gpu_put(gpu.parts);   // (from the host's memory, if it was drawn there)
 		}
-		if (async_in_buf) { async_in_buf = false; if (show) SDL_UpdateTexture(tex_next, nullptr, async_buf.data(), m.width() * m.render_scale() * 4); }
+		if (async_in_buf) { async_in_buf = false; if (show) send_rows(tex_next, nullptr, async_buf.data(), size_t(m.width()) * m.render_scale()); }
 		else SDL_UnlockTexture(tex_next);
 		if (!show) return false;
 		std::swap(tex, tex_next);
@@ -861,6 +1378,7 @@ int main(int argc, char **argv)
 		pass_note += "texture,";
 		finish_async(false);   // (a new size: what's on show is drawn again)
 		gpu_free();
+		g3_free();
 		if (tex_next) SDL_DestroyTexture(tex_next);
 		tex_next = nullptr;
 		if (tex) SDL_DestroyTexture(tex);
@@ -913,13 +1431,89 @@ int main(int argc, char **argv)
 		});
 	};
 	// a picture (at the render scale) into the texture
+	// VF2_GPU3D_CHECK's second look: the picture as put together for the screen (the GPU's 3D, the
+	// 2D around it) against the one the CPU's way shows for the same moment (render / render_smooth,
+	// antialiased as upload_picture does): what the player sees, not only the 3D
+	// (the CPU's picture for the moment, taken when the GPU's is handed over: pipelined, it's put
+	// together a pass later, the game a frame on by then)
+	auto g3_check_ref = [&](bool smooth_now, float alpha) {
+		const bitmap_rgb32 &b = smooth_now ? m.render_smooth(alpha) : m.render(true);
+		const int ss = aa_now();
+		g3.ref_w = b.width() / ss; g3.ref_h = b.height() / ss;
+		g3.ref.resize(size_t(g3.ref_w) * g3.ref_h);
+		if (ss == 1) for (int y = 0; y < g3.ref_h; y++) memcpy(&g3.ref[size_t(y) * g3.ref_w], &b.pix(y), size_t(g3.ref_w) * 4);
+		else aa_into(b, g3.ref.data(), size_t(g3.ref_w));
+		g3.ref_smooth = smooth_now;
+		g3.ref_pending = true;
+	};
+	// (a picture read back and set against the CPU's: tag "as shown" or "as shown, read later")
+	auto g3_compare = [&](SDL_Texture *t, const std::vector<uint32_t> &want, int w, int h, bool smooth, bool late) {
+		SDL_SetRenderTarget(ren, t);
+		SDL_Surface *shot = SDL_RenderReadPixels(ren, nullptr);
+		SDL_SetRenderTarget(ren, nullptr);
+		if (!shot) return;
+		SDL_Surface *x = SDL_ConvertSurface(shot, SDL_PIXELFORMAT_XRGB8888);
+		SDL_DestroySurface(shot);
+		if (!x) return;
+		uint64_t diff = 0;
+		int most = 0;
+		auto &k = g3.shown[late];
+		if (x->w == w && x->h == h)
+			for (int y = 0; y < h; y++) {
+				const uint32_t *g = (const uint32_t *)((const uint8_t *)x->pixels + size_t(y) * x->pitch);
+				for (int i = 0; i < w; i++) {
+					const uint32_t a = g[i], c = want[size_t(y) * w + i];
+					const int d = std::max({ std::abs(int(a >> 16 & 255) - int(c >> 16 & 255)), std::abs(int(a >> 8 & 255) - int(c >> 8 & 255)), std::abs(int(a & 255) - int(c & 255)) });
+					if (d > 2) {   // (the 2D averaged on the GPU: within a level or two)
+						if (k.bad < 3 && diff == 0)
+							fprintf(stderr, "gpu3d check: picture %llu as shown%s: at %d,%d the CPU's %06x, the GPU's %06x (scale %d, antialiasing %d, smooth %d, pipelined %d)\n", (unsigned long long)g3.pictures, late ? ", read later" : "", i, y, c & 0xffffff, a & 0xffffff, scale, aa_now(), int(smooth), int(pipelined));
+						diff++;
+						most = std::max(most, d);
+					}
+				}
+			}
+		else diff = uint64_t(w) * h;
+		if (diff > 50 && k.saved < 4 && getenv("VF2_GPU3D_CHECK_DIR")) {
+			k.saved++;
+			const std::string base = std::string(getenv("VF2_GPU3D_CHECK_DIR")) + (late ? "/late" : "/shown") + std::to_string(g3.pictures);
+			write_png((base + "_cpu.png").c_str(), want.data(), w, h);
+			std::vector<uint32_t> got(size_t(w) * h);
+			for (int y = 0; y < h && x->w == w; y++) memcpy(&got[size_t(y) * w], (const uint8_t *)x->pixels + size_t(y) * x->pitch, size_t(w) * 4);
+			write_png((base + "_gpu.png").c_str(), got.data(), w, h);
+		}
+		SDL_DestroySurface(x);
+		k.checked++; k.px += uint64_t(w) * h; k.diff += diff; k.bad += diff > 50; k.most = std::max(k.most, most);
+	};
+	// Reading the picture back at once makes the renderer finish it there and then; every other
+	// one is copied (by the renderer, in its turn) and read back some passes later instead, as the
+	// screen got it: a target of the GPU's drawn again before the renderer had used it shows there
+	g3_check_shown = [&] {
+		if (!g3.ref_pending) return;
+		g3.ref_pending = false;
+		if ((g3.shown[0].checked + g3.shown[1].checked + (g3.late_wait > 0)) % 2 == 0) { g3_compare(gpu_pic.target(), g3.ref, g3.ref_w, g3.ref_h, g3.ref_smooth, false); return; }
+		if (g3.late_wait > 0) return;
+		float tw = 0, th = 0;
+		SDL_GetTextureSize(gpu_pic.target(), &tw, &th);
+		if (g3.late && (g3.late->w != int(tw) || g3.late->h != int(th))) { SDL_DestroyTexture(g3.late); g3.late = nullptr; }
+		if (!g3.late) g3.late = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, int(tw), int(th));
+		if (!g3.late) return;
+		SDL_BlendMode bm = SDL_BLENDMODE_NONE;
+		SDL_GetTextureBlendMode(gpu_pic.target(), &bm);
+		SDL_SetTextureBlendMode(gpu_pic.target(), SDL_BLENDMODE_NONE);
+		SDL_SetRenderTarget(ren, g3.late);
+		SDL_RenderTexture(ren, gpu_pic.target(), nullptr, nullptr);
+		SDL_SetRenderTarget(ren, nullptr);
+		SDL_SetTextureBlendMode(gpu_pic.target(), bm);
+		g3.late_ref = g3.ref; g3.late_w = g3.ref_w; g3.late_h = g3.ref_h; g3.late_smooth = g3.ref_smooth;
+		g3.late_wait = 6;
+	};
 	auto upload_picture = [&](const bitmap_rgb32 &b) {
 		void *px;
 		int pitch;
 		if (aa_now() > 1 && SDL_LockTexture(tex, nullptr, &px, &pitch)) {
 			aa_into(b, static_cast<uint32_t *>(px), size_t(pitch) / 4);
 			SDL_UnlockTexture(tex);
-		} else if (aa_now() == 1) SDL_UpdateTexture(tex, nullptr, b.data(), b.width() * 4);
+		} else if (aa_now() == 1) send_rows(tex, nullptr, b.data(), size_t(b.width()));
 		gpu.shown = false;
 	};
 	// the picture as shown (antialiased), for a screenshot
@@ -1075,6 +1669,15 @@ int main(int argc, char **argv)
 	double queue_avg = QUEUED * frame_bytes;   // the sound queued, averaged over about half a second
 	uint64_t next_save = start_ns + 3000000000ull;
 	bool new_picture = true;
+	// the 3D's renderer, before the first picture (unseen): Auto starts on what it found here before
+	// at this scale and antialiasing, and checks it; the GPU warmed up either way
+	if (g3.dev && g3.mode != R3D_CPU) {
+		g3.on = g3.mode == R3D_GPU || auto_kept() == 1;
+		g3_decide("the start", false);
+		if (g3.on) g3_targets(m.width() * scale, model2a::HEIGHT * scale);
+		// (the test scene is like a fight, not one: checked again on the game's own once one's on show)
+		if ((g3.mode == R3D_AUTO || g3.verify) && !g3.failed) { g3.recheck = g3.want_real = true; g3.recheck_why = "the game's own scene"; }
+	}
 	const bitmap_rgb32 *picture = &m.render(true);
 	// The picture on show, as it can be drawn again (model2a::redraw): a change of scale, shape or
 	// filter draws that same picture (the same moment, the same frame's 2D) at the new size, and
@@ -1114,6 +1717,7 @@ int main(int argc, char **argv)
 	// antialiasing it lowered goes back up a step towards the player's, unless a step back up was
 	// lowered again in this run.
 	float test_screen_hz = 0;   // VF2_SCREEN_HZ=n: tests, the governor's screen as n Hz
+	float screen_hz_now = 0;    // (the screen's refresh as the last 2 s window found it: Auto's spare passes)
 	uint64_t gov_from = UINT64_MAX;
 	double test_load_ms = 0, test_load_s = 0;   // VF2_TEST_LOAD=ms:s (tests: a slow start)
 	if (const char *tl = getenv("VF2_TEST_LOAD")) sscanf(tl, "%lf:%lf", &test_load_ms, &test_load_s);
@@ -1157,9 +1761,13 @@ int main(int argc, char **argv)
 		const char *rn = SDL_GetRendererName(ren);
 		const bool gpu2d = gpu.on && aa_now() == 1 && (scale >= 2 || gpu.any_scale);
 		const i960rec::runtime *rec = m.recompiled();
-		fprintf(stderr, "render state (%s): %dx (drawn at %dx), antialiasing %s, %s %.2f:1, pipelined %s, the 2D on the %s (%s), smooth motion %s, governor %s (over %d, short %d), %d threads, vsync %d, screen %.2f Hz, window %d x %d, i960 %s\n",
+		char r3d[160];
+		if (!g3.dev || g3.mode == R3D_CPU) snprintf(r3d, sizeof r3d, "the CPU (%s%s)", R3D_NAMES[g3.mode], g3.dev ? "" : ", no GPU renderer");
+		else snprintf(r3d, sizeof r3d, "the %s (%s%s, %s; last check CPU %.2f ms, GPU %.2f)", g3.on ? "GPU" : "CPU", R3D_NAMES[g3.mode], g3.failed ? ", the GPU failed" : "",
+					  g3.dev->quality() == gpu3d_quality::exact ? "exact" : "fast", g3.cpu_ms, g3.gpu_ms);
+		fprintf(stderr, "render state (%s): %dx (drawn at %dx), antialiasing %s, %s %.2f:1, pipelined %s, the 3D on %s, the 2D on the %s (%s), drawn %s, smooth motion %s, governor %s (over %d, short %d), %d threads, vsync %d, screen %.2f Hz, window %d x %d, i960 %s\n",
 				why, scale, m.render_scale(), aa == 0 ? "Low" : aa_now() > 1 ? (aa_now() == 2 ? "2x" : aa_now() == 3 ? "3x" : "on") : "off", ASPECT_NAMES[aspect_i], m.width() / 372.0,
-				pipelined ? "yes" : "no", gpu2d ? "GPU" : "CPU", rn ? rn : "?", !cfg.smooth ? "off" : smooth_limit ? "on (60 a second)" : "on",
+				pipelined ? "yes" : "no", r3d, gpu2d || g3.on ? "GPU" : "CPU", rn ? rn : "?", draw_locked ? "into the texture" : "in memory, then sent up", !cfg.smooth ? "off" : smooth_limit ? "on (60 a second)" : "on",
 				govern ? "on" : "off", load.over, load.slow, row_pool::get().threads(), vsync, hz, pw, ph,
 				!rec ? "interpreted" : rec->nentry ? "native" : "recompiled C++");
 	};
@@ -1178,6 +1786,7 @@ int main(int argc, char **argv)
 		m.set_edge_aa(aa == 0);
 		if (!make_texture()) { running = false; return; }
 		if (by_player) { player_scale = scale; player_aa = aa; }
+		if (g3.mode == R3D_AUTO) { g3.recheck = true; g3.want_real = false; g3.recheck_why = by_player ? "the player's scale or antialiasing" : "the governor's scale or antialiasing"; }
 		redraw_shown();   // the picture on show, at the new size
 		log_state(by_player ? "the player's scale or antialiasing" : "the governor's");
 	};
@@ -1187,6 +1796,7 @@ int main(int argc, char **argv)
 		present_shape();
 		redraw_shown();   // the picture on show, at the new shape (the 3D's lists set up again for the width)
 		load = load_window{ SDL_GetTicksNS() }; gov = gov_window{};
+		if (g3.mode == R3D_AUTO) { g3.recheck = true; g3.want_real = false; g3.recheck_why = "a new shape"; }
 		pipelined = pipeline_wanted();
 		smooth_limit = false;
 		log_state("a new shape");
@@ -1247,6 +1857,42 @@ int main(int argc, char **argv)
 				int i = 0;
 				while (i < 3 && ORDER[i] != cfg.aa) i++;
 				cfg.aa = ORDER[std::clamp(i + d, 0, 3)]; aa = cfg.aa; set_scale(scale);
+			} });
+		p.items.push_back({ "3D renderer",
+			"Which part of your computer draws the 3D. Auto uses the GPU unless it is too slow on this computer (it checks quietly, without interrupting play). CPU and GPU draw the same picture; the GPU frees the processor.",
+			[&] {
+#if !defined(VF2_GPU3D_METAL) && !defined(VF2_GPU3D_SDL)
+				return std::string("CPU (no GPU support in this build)");
+#endif
+				if (!g3.dev && g3.next_start && g3.mode != R3D_CPU) return std::string(R3D_NAMES[g3.mode]) + " (from the next start)";
+				if (!g3.dev) return std::string(g3.mode == R3D_CPU ? "CPU" : g3.tried ? "CPU (no GPU support here)" : R3D_NAMES[g3.mode]);
+				if (g3.mode == R3D_AUTO) return std::string("Auto (") + (g3.on ? "GPU" : "CPU") + ")";
+				return std::string(g3.failed && g3.mode == R3D_GPU ? "GPU (failed: CPU)" : R3D_NAMES[g3.mode]);
+			},
+			[&](int d) {
+#if !defined(VF2_GPU3D_METAL) && !defined(VF2_GPU3D_SDL)
+				return;   // (no GPU's 3D: the setting kept as it is)
+#endif
+				static const int ORDER[] = { R3D_AUTO, R3D_CPU, R3D_GPU };
+				int i = 0;
+				while (i < 2 && ORDER[i] != g3.mode) i++;
+				g3.mode = cfg.renderer3d = ORDER[wrap(i + d, 3)]; cfg_dirty = true;
+				finish_async(false);
+				if (g3.mode != R3D_CPU) g3_start();
+				g3_decide("the player's choice", true);   // (the menu's open: nothing moves)
+				redraw_shown();
+				log_state("the player's 3D renderer");
+			} });
+		if (g3.dev && !strcmp(g3.dev->name(), "metal")) p.items.push_back({ "GPU quality",
+			"Exact draws the 3D on the GPU pixel for pixel as the CPU does. Fast takes shortcuts: quicker on a slow graphics card, with slight differences in texture detail and at edges.",
+			[&] { return std::string(cfg.gpu_quality ? "Fast" : "Exact"); },
+			[&](int) {
+				cfg.gpu_quality = !cfg.gpu_quality; cfg_dirty = true;
+				if (!g3.dev) return;
+				finish_async(false);
+				g3.dev->set_quality(cfg.gpu_quality ? gpu3d_quality::fast : gpu3d_quality::exact);
+				g3_decide("the player's GPU quality", true);
+				redraw_shown();
 			} });
 		p.items.push_back({ "Picture shape",
 			"Fit the window fills any screen shape. The other shapes add black bars to keep their shape; 4:3 is the original arcade screen. (F6)",
@@ -1538,6 +2184,15 @@ int main(int argc, char **argv)
 	if (const char *k = getenv("VF2_MENU_KEYS"))
 		for (std::string t, all = std::string(k) + ","; !all.empty(); all.erase(0, all.find(',') + 1))
 			if (!(t = all.substr(0, all.find(','))).empty()) menu_keys.push_back(t);
+	// VF2_FLICKER=dir: each new picture on show read back and set against the two before it (pixels
+	// that change and change back: a flicker), counted in dir/flicker.txt, the worst saved
+	const int test_stage = getenv("VF2_STAGE") ? atoi(getenv("VF2_STAGE")) : -1;
+	const char *flicker_dir = getenv("VF2_FLICKER");
+	struct { FILE *log = nullptr; std::vector<u32> prev1, prev2; int w = 0, h = 0, n = 0, saved = 0; uint64_t total = 0, pics = 0, worst = 0, save_from = 0, save_min = 200; } flicker;
+	if (const char *f = getenv("VF2_FLICKER_MIN")) flicker.save_min = strtoull(f, nullptr, 10);
+	if (const char *f = getenv("VF2_FLICKER_FROM")) flicker.save_from = strtoull(f, nullptr, 10);
+	if (flicker_dir) flicker.log = fopen((std::string(flicker_dir) + "/flicker.txt").c_str(), "w");
+	if (flicker_dir && !flicker.log) flicker_dir = nullptr;
 	std::vector<int64_t> shots_at;        // VF2_SHOT_AT
 	if (const char *k = getenv("VF2_SHOT_AT"))
 		for (std::string all = std::string(k) + ","; !all.empty(); all.erase(0, all.find(',') + 1))
@@ -1612,9 +2267,11 @@ int main(int argc, char **argv)
 		fprintf(stderr, "the renderer's %s reset: its textures made again\n", device ? "device" : "targets");
 		if (async_pending) {   // (its texture may be gone: nothing unlocked into it, the picture dropped)
 			m.render_wait();
-			async_pending = gpu.pending = async_in_buf = false;
+			if (g3.dev) g3.dev->finish();
+			async_pending = gpu.pending = async_in_buf = g3.pending = false;
 		}
 		gpu_pic.lost();
+		g3_free();
 		gpu.shown = false;
 		if (glass) { SDL_DestroyTexture(glass); glass = nullptr; glass_w = glass_h = 0; }
 		menu.textures_lost();
@@ -1789,7 +2446,10 @@ int main(int argc, char **argv)
 			if (audio && !ff && SDL_GetAudioStreamQueued(audio) == 0 && shown) load.starved++, pass_starved++;
 			m.set_draw_3d(last || sync.enabled);
 			const uint64_t te = SDL_GetTicksNS(), waited = m.render_waited_ns();
+			if (test_stage >= 0 && (m.game_mode() == 7 || m.game_mode() == 8))   // VF2_STAGE (tests: the fight's stage)
+				const_cast<std::vector<u8> &>(m.workram())[0x64] = u8(test_stage);
 			m.run_frame();
+			sysinfo::note_frame();
 			pace.emu += SDL_GetTicksNS() - te;
 			pace.waited += m.render_waited_ns() - waited;   // (pipelined: the last picture still being drawn)
 			m.set_draw_3d(true);
@@ -1854,6 +2514,41 @@ int main(int argc, char **argv)
 			if (menu.is_open()) { draw_into_texture = show; held = !show; break; }   // (this frame is the one on show)
 		}
 		if (audio) { const int q = SDL_GetAudioStreamQueued(audio); pace.qmin = std::min(pace.qmin, q); pace.qmax = std::max(pace.qmax, q); }
+		// Auto's check again, a turn at a time (a picture each way) where it can't be seen: at a
+		// moment nothing moves on screen (the menu, paused, a scene change held), or in a pass with
+		// time to spare (no frame run, and the turn, as long as the last, well within the screen's
+		// refresh: a picture between frames still goes up in time). A switch only at a quiet moment.
+		for (int64_t at : g3.recheck_at) if (at == pass) { g3.recheck = true; g3.recheck_why = "a test (VF2_AUTO_RECHECK)"; }
+		const bool quiet = stopped || held || (hold_on && due == 0);
+		if (g3.recheck && (g3.mode == R3D_AUTO || (g3.verify && g3.mode == R3D_GPU)) && g3.dev && !g3.failed && (!g3.want_real || m.polygons_drawn(0) >= 400)) {
+			const double refresh_ms = 1000.0 / (hidden || !screen_hz_now ? 120.0 : std::min(240.0f, screen_hz_now));
+			const double turn = g3.b.active && g3.b.last_turn > 0 ? g3.b.last_turn : std::max(1.0, g3.gpu_ms);
+			const bool spare = !stopped && due == 0 && !async_pending && turn > 0 && double(SDL_GetTicksNS() - pass_t0) / 1e6 + turn < 0.4 * refresh_ms;
+			if (quiet || spare || g3.anytime || g3.verify) {   // (SDL_GPU's check of its pictures: whenever, a turn a pass)
+				const bool was = g3.on;
+				const uint64_t tc = SDL_GetTicksNS();
+				// (in bands of about a millisecond of the CPU's, by the last check's time)
+				if (!g3.b.active) g3_bench_begin(g3.recheck_why.c_str(), true, stopped ? 1 : int(std::ceil(std::max(g3.cpu_ms, 1.0) / 1.0)));
+				if (!g3.b.ready) {
+					bool done = g3.b.active && g3_bench_step();
+					while (stopped && g3.b.active && !done) done = g3_bench_step();   // (the menu: all of it)
+					if (done && g3.b.active) g3.b.ready = true;
+					g3.b.last_turn = double(SDL_GetTicksNS() - tc) / 1e6;
+					pass_note += quiet ? "auto3d-quiet," : "auto3d-spare,";
+					pace.draw += SDL_GetTicksNS() - tc;
+				}
+				// the choice, at a quiet moment (or at once if it's the same)
+				if (g3.b.ready && g3.b.active) {
+					const bool gpu_wins = g3.on ? g3.b.best_g <= g3.b.best_c : g3.b.best_g < 0.85 * g3.b.best_c;
+					if (quiet || gpu_wins == g3.on || g3.anytime || g3.mode != R3D_AUTO) { g3.want_real = false; g3_bench_done(); pass_note += "auto3d-done,"; }
+				}
+				if (was != g3.on) {
+					if (!g3.on) g3_free();
+					load = load_window{ SDL_GetTicksNS() }; gov = gov_window{};
+					log_state("Auto's check");
+				}
+			}
+		}
 		bool new_shown = false;   // a new picture of the game went up (Show FPS)
 		if (async_pending) {   // the last pass's picture, drawn meanwhile
 			const uint64_t tu = SDL_GetTicksNS(), waited = m.render_waited_ns();
@@ -1881,6 +2576,93 @@ int main(int argc, char **argv)
 				smooth_budget = std::max(0.0, smooth_budget - 1);
 				alpha = float(std::clamp(frame_clock - double(frames_run), 0.0, 1.0));
 				draw_into_texture = true;
+			}
+		}
+		// the 3D on the GPU (see gpu3d_state), the 2D's parts put together around it (gpu_picture)
+		if (draw_into_texture && g3.on && !g3.failed && g3_targets(m.width() * scale, model2a::HEIGHT * scale) && gpu_pic.ready(m.width(), scale)) {
+			const uint64_t td = SDL_GetTicksNS();
+			const float a = smooth_now ? alpha : -1.0f;
+			const int ss = aa_now();
+			// (a picture checked: the CPU's 3D too, into memory of the host's. A 4:3 screen in a wide
+			// picture, which the GPU leaves to the CPU, is left in the CPU's map: put() sends it up)
+			const bool check = g3.check_every && (g3.pictures + 1) % uint64_t(g3.check_every) == 0;
+			// (every other checked picture drawn on the GPU alone, as one not checked is, then checked
+			// as shown only: drawing the CPU's 3D alongside mustn't be what makes them the same)
+			const bool check3d = check && (g3.pictures + 1) / uint64_t(g3.check_every) % 2 == 0;
+			u32 *px3d = nullptr; size_t stride3d = 0;
+			if (check3d) {
+				const size_t W = size_t(m.width()) * m.render_scale();
+				g3.check_cpu.assign(W * model2a::HEIGHT * m.render_scale(), 0);
+				px3d = g3.check_cpu.data(); stride3d = W;
+			}
+			const int target = g3.next;
+			const model2a::gpu3d_hook hook = [&](model2_video &v, int pic) { return g3_submit(v, pic, target); };
+			if (m.render_parts(a, px3d, stride3d, false, gpu.parts, &hook, ss > 1 || check3d, check3d)) {
+				if (gpu.parts.gpu3d && check) g3_check_ref(smooth_now, alpha);
+				if (gpu.parts.gpu3d) {
+					if (gpu.parts.has3d) g3.next = (g3.next + 1) % G3_TARGETS;
+					if (check3d && gpu.parts.has3d && g3_finish()) {   // the GPU's against the CPU's (averaged as the GPU does)
+						const int w = m.width() * scale, h = model2a::HEIGHT * scale, W = m.width() * m.render_scale();
+						g3.check_gpu.assign(size_t(w) * h, 0);
+						if (g3.dev->read_target(target, g3.check_gpu.data(), size_t(w))) {
+							uint64_t diff = 0;
+							for (int y = 0; y < h; y++)
+								for (int x = 0; x < w; x++) {
+									u32 want;
+									if (ss == 1) want = g3.check_cpu[size_t(y) * W + x];
+									else {
+										u32 r = 0, g = 0, b = 0, n = 0;
+										for (int j = 0; j < ss; j++)
+											for (int i = 0; i < ss; i++)
+												if (const u32 c = g3.check_cpu[size_t(y * ss + j) * W + x * ss + i]) r += (c >> 16) & 255, g += (c >> 8) & 255, b += c & 255, n++;
+										const u32 k = u32(ss * ss);
+										want = n ? (u32(std::lround(n * 255.0 / k)) << 24) | (r / k) << 16 | (g / k) << 8 | (b / k) : 0;
+									}
+									const u32 got = g3.check_gpu[size_t(y) * w + x];
+									if (got != want) {
+										diff++;
+										int e = 0;
+										for (int sh = 0; sh < 32; sh += 8) e = std::max(e, std::abs(int((got >> sh) & 255) - int((want >> sh) & 255)));
+										g3.check_max = std::max(g3.check_max, e);
+										if (g3.check_bad < 5 && diff == 1)
+											fprintf(stderr, "gpu3d check: picture %llu: at %d,%d the CPU's %08x, the GPU's %08x (scale %d, antialiasing %d, smooth %d)\n", (unsigned long long)g3.pictures, x, y, want, got, scale, ss, int(smooth_now));
+									}
+								}
+							g3.checked++; g3.check_px += uint64_t(w) * h; g3.check_diff += diff; g3.check_bad += diff != 0;
+						}
+					}
+					if (pipelined) {   // put together a pass later (the GPU drawing meanwhile)
+						gpu_pic.upload_2d(gpu.parts, ss);   // (now, while the 2D is the board's)
+						pending_pic = m.last_picture();
+						async_pending = gpu.pending = g3.pending = true;
+						g3.pending_t = target; g3.pending_ss = ss;
+						draw_into_texture = false;
+						pace.draw += SDL_GetTicksNS() - td;
+					} else {
+						const uint64_t te = SDL_GetTicksNS();
+						pace.draw += te - td;
+						gpu_pic.upload_2d(gpu.parts, ss);   // (the 2D sent up while the GPU draws the 3D)
+						if (g3_finish() && gpu_pic.put(gpu.parts, gpu.parts.has3d ? g3.tex[target] : nullptr, ss)) {
+							g3_check_shown();
+							gpu.shown = true;
+							shown_pic = m.last_picture();
+							pace.pictures++;
+							new_shown = true;
+							draw_into_texture = false;
+						}
+						pace.upload += SDL_GetTicksNS() - te;
+					}
+				} else if (ss == 1 && !check3d) {   // (drawn on the CPU: a 4:3 screen in a wide picture)
+					const uint64_t te = SDL_GetTicksNS();
+					pace.draw += te - td;
+					if (gpu_put(gpu.parts)) {
+						shown_pic = m.last_picture();
+						pace.pictures++;
+						new_shown = true;
+						draw_into_texture = false;
+					}
+					pace.upload += SDL_GetTicksNS() - te;
+				}
 			}
 		}
 		if (draw_into_texture && gpu.on && aa_now() == 1 && (scale >= 2 || gpu.any_scale) && gpu_pic.ready(m.width(), m.render_scale())) {   // the 2D on the GPU (see gpu_picture)
@@ -1917,7 +2699,7 @@ int main(int argc, char **argv)
 		}
 		void *next_px = nullptr;
 		int next_pitch = 0;
-		if (draw_into_texture && pipelined && aa_now() == 1 && tex_next && !lock_across) {   // (into the host's memory: see lock_across)
+		if (draw_into_texture && pipelined && aa_now() == 1 && tex_next && (!lock_across || !draw_locked)) {   // (into the host's memory: see lock_across, draw_locked)
 			const size_t n = size_t(m.width()) * m.render_scale() * model2a::HEIGHT * m.render_scale();
 			if (async_buf.size() != n) async_buf.assign(n, 0);
 			next_px = async_buf.data(); next_pitch = m.width() * m.render_scale() * 4;
@@ -1930,11 +2712,11 @@ int main(int argc, char **argv)
 			pending_pic = m.last_picture();
 			async_pending = true;
 			pace.draw += SDL_GetTicksNS() - td;
-		} else if (draw_into_texture) {   // (not a copy of a 12 MB picture at 4x: drawn where it goes)
+		} else if (draw_into_texture) {   // (not a copy of a 12 MB picture at 4x: drawn where it goes, where that's the host's memory)
 			void *px;
 			int pitch;
 			const uint64_t tu = SDL_GetTicksNS();
-			if (aa_now() == 1 && SDL_LockTexture(tex, nullptr, &px, &pitch)) {
+			if (aa_now() == 1 && draw_locked && SDL_LockTexture(tex, nullptr, &px, &pitch)) {
 				const uint64_t td = SDL_GetTicksNS();
 				if (smooth_now) m.render_smooth(alpha, static_cast<uint32_t *>(px), size_t(pitch) / 4, false);
 				else m.render_into(static_cast<uint32_t *>(px), size_t(pitch) / 4, true);
@@ -1991,6 +2773,21 @@ int main(int argc, char **argv)
 		menu.render();
 		pace.blit += SDL_GetTicksNS() - tb;
 		if (!running && gpu_pic.check_every) gpu_pic.report();
+		if (!running && g3.check_every)
+			fprintf(stderr, "gpu3d check: %llu of %llu GPU pictures checked against the CPU's, %llu with differences, %llu of %llu pixels differ (largest %d)\n",
+					(unsigned long long)g3.checked, (unsigned long long)g3.pictures, (unsigned long long)g3.check_bad, (unsigned long long)g3.check_diff, (unsigned long long)g3.check_px, g3.check_max);
+		if (static const int sdl_load = getenv("VF2_TEST_GPU_LOAD") ? atoi(getenv("VF2_TEST_GPU_LOAD")) : 0; sdl_load > 0 && gpu.shown) {   // tests: the renderer's GPU work made slow (its frames queue up behind)
+			static SDL_Texture *scratch = nullptr;
+			if (!scratch) scratch = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 7680, 4320);
+			SDL_SetRenderTarget(ren, scratch);
+			for (int i = 0; i < sdl_load; i++) SDL_RenderTexture(ren, gpu_pic.target(), nullptr, nullptr);
+			SDL_SetRenderTarget(ren, nullptr);
+		}
+		if (g3.late_wait > 0 && --g3.late_wait == 0) g3_compare(g3.late, g3.late_ref, g3.late_w, g3.late_h, g3.late_smooth, true);
+		if (!running && g3.check_every)
+			for (int l = 0; l < 2; l++)
+				fprintf(stderr, "gpu3d check: %llu pictures as shown%s checked against the CPU's way, %llu differ (over 50 pixels by over 2), %llu of %llu pixels in all (largest %d)\n", (unsigned long long)g3.shown[l].checked,
+						l ? " (read some passes later)" : " (read at once)", (unsigned long long)g3.shown[l].bad, (unsigned long long)g3.shown[l].diff, (unsigned long long)g3.shown[l].px, g3.shown[l].most);
 		if (!running && quit_after >= 0) {
 			picture = shown_pic ? &m.redraw(*shown_pic) : &m.render(true);   // (the picture on show)
 			write_png("build/host_last.png", picture->data(), picture->width(), picture->height());
@@ -2000,6 +2797,44 @@ int main(int argc, char **argv)
 			write_window(("build/host_window_" + std::to_string(window_shot) + ".png").c_str());
 			window_shot = 0;
 		}
+		if (flicker_dir && new_shown && !stopped) {   // VF2_FLICKER: the picture on show against the two before it
+			int lw, lh; SDL_RendererLogicalPresentation mode;
+			SDL_GetRenderLogicalPresentation(ren, &lw, &lh, &mode);
+			SDL_SetRenderLogicalPresentation(ren, 0, 0, SDL_LOGICAL_PRESENTATION_DISABLED);
+			if (SDL_Surface *shot = SDL_RenderReadPixels(ren, nullptr)) {
+				if (SDL_Surface *x = SDL_ConvertSurface(shot, SDL_PIXELFORMAT_XRGB8888)) {
+					const int fw = x->w, fh = x->h;
+					std::vector<u32> cur(size_t(fw) * fh);
+					for (int y = 0; y < fh; y++) memcpy(&cur[size_t(y) * fw], (uint8_t *)x->pixels + y * x->pitch, size_t(fw) * 4);
+					auto d = [](u32 a, u32 b) { return std::abs(int(a >> 16 & 255) - int(b >> 16 & 255)) + std::abs(int(a >> 8 & 255) - int(b >> 8 & 255)) + std::abs(int(a & 255) - int(b & 255)); };
+					auto &fl = flicker;
+					if (fl.w == fw && fl.h == fh && fl.n >= 2) {
+						// a pixel that went somewhere and came back: A, B, A (B far from both)
+						uint64_t toggles = 0;
+						for (size_t i = 0; i < cur.size(); i++)
+							if (d(cur[i], fl.prev2[i]) < 24 && d(cur[i], fl.prev1[i]) > 96 && d(fl.prev1[i], fl.prev2[i]) > 96) toggles++;
+						fl.total += toggles; fl.pics++;
+						if (toggles > fl.worst) fl.worst = toggles;
+						fprintf(fl.log, "%lld %llu %llu\n", (long long)pass, (unsigned long long)game_frame, (unsigned long long)toggles);
+						if (toggles >= fl.save_min && fl.saved < 12 && game_frame >= fl.save_from) {
+							fl.saved++;
+							const std::string b = std::string(flicker_dir) + "/t" + std::to_string(pass);
+							write_png((b + "_a.png").c_str(), fl.prev2.data(), fw, fh);
+							write_png((b + "_b.png").c_str(), fl.prev1.data(), fw, fh);
+							write_png((b + "_c.png").c_str(), cur.data(), fw, fh);
+						}
+					}
+					if (fl.w != fw || fl.h != fh) fl.n = 0;
+					fl.w = fw; fl.h = fh;
+					fl.prev2.swap(fl.prev1); fl.prev1.swap(cur); fl.n++;
+					SDL_DestroySurface(x);
+				}
+				SDL_DestroySurface(shot);
+			}
+			SDL_SetRenderLogicalPresentation(ren, lw, lh, mode);
+		}
+		if (!running && flicker_dir) fprintf(stderr, "flicker: %llu pictures, %llu pixels went and came back (%.1f a picture), the most in one %llu\n",
+				(unsigned long long)flicker.pics, (unsigned long long)flicker.total, flicker.pics ? double(flicker.total) / flicker.pics : 0.0, (unsigned long long)flicker.worst);
 		for (int64_t at : shots_at)
 			if (at == pass) write_window(("build/host_window_at_" + std::to_string(at) + ".png").c_str());
 		const uint64_t tp = SDL_GetTicksNS();
@@ -2109,6 +2944,7 @@ int main(int argc, char **argv)
 			float screen_hz = hidden ? 120 : 60;
 			if (const SDL_DisplayMode *dm = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(win))) if (!hidden && dm->refresh_rate > 0) screen_hz = dm->refresh_rate;
 			if (test_screen_hz > 0) screen_hz = test_screen_hz;
+			screen_hz_now = screen_hz;
 			if (smooth_on()) enough = std::max(55.0, std::min<double>(screen_hz, smooth_limit ? 60 : 120) * 0.9);
 			// Judged on the window's ordinary passes only (gov), and only when they're most of it: a
 			// window taken up by scene changes says nothing either way (its streaks stay as they were)
@@ -2124,6 +2960,10 @@ int main(int argc, char **argv)
 			const double gfps = gsecs > 0 ? gov.frames / gsecs : 0, gshown = gsecs > 0 ? gov.pictures / gsecs : 0, gbusy = gsecs > 0 ? double(gov.work) / double(gov.time) : 0;
 			const bool slow = steady_short || (judged && (gfps < 56.5 || gshown < enough) && gbusy > 0.6);
 			const bool over = judged && (gbusy > 0.9 || (gov.starved > 0 && gbusy > 0.6));
+			// Auto: pictures short, the other renderer checked at the next quiet moment (at most every 20 s)
+			if (g3.mode == R3D_AUTO && g3.dev && !g3.failed && !g3.recheck && (slow || over) && t - g3.last_check > 20000000000ull) {
+				g3.recheck = true; g3.recheck_why = "the pictures short";
+			}
 			// Pipelining: on when running a frame and drawing its pictures takes over 85% of a frame's
 			// time (each picture then goes up a pass later: a frame, or with smooth motion a refresh of
 			// the screen), before the governor lowers anything. Like the
@@ -2203,7 +3043,15 @@ int main(int argc, char **argv)
 				fprintf(stderr, "pace: %.1f frames/s, %.1f pictures/s (screen %.2f Hz), busy %.0f%%; a picture: run %.2f ms, draw %.2f%s, upload %.2f; a pass: present %.2f ms; %dx%s\n",
 						ten.frames / ten.secs, ten.pictures / ten.secs, screen_hz, ten.work / (ten.secs * 10), ten.emu / pics, ten.draw / pics, pipelined ? " (alongside)" : "",
 						ten.upload / pics, ten.present / passes, scale, !smooth_on() ? ", smooth off" : "");
+				if (const std::string where = sysinfo::placement(); !where.empty()) fprintf(stderr, "  %s\n", where.c_str());
 				ten = pace_ten{};
+				static uint64_t g3_pics0 = 0;
+				static double g3_gpu0 = 0, g3_cpu0 = 0;
+				if (g3.pictures > g3_pics0) {
+					const double n = double(g3.pictures - g3_pics0);
+					fprintf(stderr, "the 3D on the GPU: %.0f pictures, a picture %.2f ms on the GPU, %.2f handing it over\n", n, (g3.sum_gpu - g3_gpu0) / n, (g3.sum_cpu - g3_cpu0) / n);
+					g3_pics0 = g3.pictures; g3_gpu0 = g3.sum_gpu; g3_cpu0 = g3.sum_cpu;
+				}
 			}
 			pace = pace_window{};
 		}
@@ -2219,6 +3067,8 @@ int main(int argc, char **argv)
 	save_nvram();
 	if (cfg_dirty && (quit_after < 0 || test_saves)) save_settings();
 	for (auto &[id, j] : vpads) { if (j) SDL_CloseJoystick(j); SDL_DetachVirtualJoystick(id); }
+	g3_free();
+	g3.dev.reset();   // (the GPU's 3D before the renderer whose device it may share)
 	SDL_Quit();
 	return 0;
 }

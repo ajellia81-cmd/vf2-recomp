@@ -96,8 +96,10 @@
 
 #include "model2_video.h"
 #include "parallel.h"
+#include "../gpu/gpu3d.h"
 
 #include <bit>
+#include <chrono>
 #include <cmath>
 #include <limits>
 
@@ -862,6 +864,236 @@ void model2_renderer::draw(const model2_video::drawn_poly &p, int scale, const r
 	case 7: render_polygon<7, 3>(vp, cb, v, &p.extra); break;
 	case 8: render_polygon<8, 3>(vp, cb, v, &p.extra); break;
 	}
+}
+
+// The scan conversion of draw(), whole, its spans marking the pixels the polygon owns: those
+// draw_scanline_* would fill (every other one for checker; none for solid translucent, which
+// draws nothing) where no polygon before it has; a textured translucent one only where its texel
+// is drawn (alpha half or more), as draw_scanline_tex<true> finds it.
+constexpr u32 LERP(u32 x, u32 y, unsigned a);
+inline s32 fast_log2(float value);
+
+void model2_renderer::draw_owner(const model2_video::drawn_poly &p, int scale, u32 index, bitmap_rgb32 &owner)
+{
+	if (p.renderer == 1)
+		return;
+	rectangle vp(p.vp.min_x * scale, p.vp.max_x * scale + scale - 1, p.vp.min_y * scale, p.vp.max_y * scale + scale - 1);
+	vp &= rectangle(0, owner.width() - 1, 0, owner.height() - 1);
+	if (vp.min_y > vp.max_y || vp.min_x > vp.max_x)
+		return;
+	poly_vertex v[8];
+	const float s = float(scale);
+	for (int i = 0; i < p.num_vertices; i++) {
+		v[i] = p.v[i];
+		v[i].x *= s;
+		v[i].y *= s;
+	}
+	const bool checker = p.extra.checker;
+	const m2_poly_extra_data &object = p.extra;
+	const s32 max_level = 30 - std::countl_zero(std::min(object.texwidth | 1, object.texheight | 1));
+	const render_delegate cb = [&](int32_t y, const extent_t &e, const m2_poly_extra_data &, int) {
+		u32 *const o = &owner.pix(y);
+		int x = e.startx;
+		const int dx = checker ? 2 : 1;
+		float ooz = e.param[0].start, uoz = e.param[1].start, voz = e.param[2].start;
+		float dooz = e.param[0].dpdx, duoz = e.param[1].dpdx, dvoz = e.param[2].dpdx;
+		if (checker && !((x ^ y) & 1)) {
+			x++;
+			ooz += dooz; uoz += duoz; voz += dvoz;
+		}
+		if (checker) { dooz *= 2.0F; duoz *= 2.0F; dvoz *= 2.0F; }
+		for (; x < e.stopx; x += dx, ooz += dooz, uoz += duoz, voz += dvoz) {
+			if (o[x] != 0xffffffffu)
+				continue;
+			if (p.renderer == 3) {
+				// textured translucent: draw_scanline_tex<true>'s texel, none where its alpha is under half
+				float const z = 1.0F / ooz;
+				s32 const mml = -object.texlod + fast_log2(z);
+				s32 const level = std::clamp(mml >> 7, 0, max_level);
+				s32 const u = s32(uoz * z * 256.0F);
+				s32 const v = s32(voz * z * 256.0F);
+				u32 t = fetch_bilinear_texel<true>(object, level, u, v);
+				if (mml > 0 && level < max_level)
+					t = LERP(t, fetch_bilinear_texel<true>(object, level + 1, u, v), (mml & 127) << 1);
+				else if (object.utex && mml < 0)
+					t = LERP(t, fetch_bilinear_texel<true>(object, -1, u, v), std::min(-mml >> object.utexminlod, 127));
+				if (t < 0x00400000)
+					continue;
+			}
+			o[x] = index;
+		}
+	};
+	switch (p.num_vertices)
+	{
+	case 3: render_triangle<3>(vp, cb, v[0], v[1], v[2], &p.extra); break;
+	case 4: render_polygon<4, 3>(vp, cb, v, &p.extra); break;
+	case 5: render_polygon<5, 3>(vp, cb, v, &p.extra); break;
+	case 6: render_polygon<6, 3>(vp, cb, v, &p.extra); break;
+	case 7: render_polygon<7, 3>(vp, cb, v, &p.extra); break;
+	case 8: render_polygon<8, 3>(vp, cb, v, &p.extra); break;
+	}
+}
+
+void model2_video::export_shown(std::vector<gpu3d_poly> &out) const
+{
+	out.clear();
+	const int p = shown_now();
+	if (m_render_test_mode || p < 0) return;
+	export_list(m_pictures[p].drawn, out);
+}
+
+void model2_video::export_picture(int picture, std::vector<gpu3d_poly> &out) const
+{
+	out.clear();
+	if (picture < 0 || picture > 3) return;
+	export_list(m_pictures[picture].drawn, out);
+}
+
+void model2_video::export_list(const std::vector<drawn_poly> &list, std::vector<gpu3d_poly> &out) const
+{
+	out.reserve(list.size());
+	for (const drawn_poly &d : list) {
+		gpu3d_poly &g = out.emplace_back();
+		g.n = d.num_vertices;
+		for (int i = 0; i < d.num_vertices; i++) { g.x[i] = d.v[i].x; g.y[i] = d.v[i].y; }
+		g.renderer = d.renderer;
+		g.checker = d.extra.checker;
+		g.vp[0] = int16_t(d.vp.min_x); g.vp[1] = int16_t(d.vp.max_x); g.vp[2] = int16_t(d.vp.min_y); g.vp[3] = int16_t(d.vp.max_y);
+		const m2_poly_extra_data &e = d.extra;
+		if (!(d.renderer & 2)) {
+			// draw_scanline_solid's colour
+			const u32 c = m_palram[e.colorbase + 0x1000] & 0xffff, l = e.luma >> 2;
+			const u32 r = m_colorxlat[0x0000 / 2 + (((c >> 0) & 0x1f) << 8) + l] & 0xff;
+			const u32 gg = m_colorxlat[0x4000 / 2 + (((c >> 5) & 0x1f) << 8) + l] & 0xff;
+			const u32 b = m_colorxlat[0x8000 / 2 + (((c >> 10) & 0x1f) << 8) + l] & 0xff;
+			g.colour = rgb_t(m_gamma_table[r], m_gamma_table[gg], m_gamma_table[b]);
+			continue;
+		}
+		for (int i = 0; i < d.num_vertices; i++) { g.z[i] = d.v[i].pz; g.u[i] = d.v[i].pu; g.v[i] = d.v[i].pv; }
+		g.pal = u16(m_palram[e.colorbase + 0x1000] & 0x7fff);
+		g.lumabase = u16(e.lumabase);
+		g.luma = e.luma;
+		g.texlod = e.texlod;
+		g.sheet = e.texsheet[0] == m_textureram1;
+		g.texw = u16(e.texwidth); g.texh = u16(e.texheight); g.texx = u16(e.texx); g.texy = u16(e.texy);
+		g.wrapx = e.texwrapx; g.wrapy = e.texwrapy; g.mirrorx = e.texmirrorx; g.mirrory = e.texmirrory;
+		g.utex = e.utex; g.utexminlod = e.utexminlod; g.utexx = u16(e.utexx); g.utexy = u16(e.utexy);
+	}
+}
+
+// The host's Auto's test scene (CPU or GPU, timed before the game is on show): `n` polygons made
+// up, not the game's, of the sizes and kinds a fight has: the whole picture covered by a floor of
+// large textured quads (a fight's 3D covers the screen: the stage's floor and walls), some larger
+// ones over it, and small textured and solid ones crowded in the middle (the fighters), drawn from
+// whatever is in the texture RAMs. The same each time (a fixed sequence).
+void model2_video::bench_make(int n)
+{
+	m_bench.clear();
+	const int w = 496 + 2 * m_ext;
+	u32 seed = 12345;
+	auto rnd = [&](float a, float b) { seed = seed * 1664525u + 1013904223u; return a + (b - a) * float(seed >> 8) / float(1 << 24); };
+	auto add = [&](float cx, float cy, float rx, float ry, bool tex, bool four) {
+		drawn_poly &d = m_bench.emplace_back();
+		d.num_vertices = four ? 4 : 3;
+		d.renderer = tex ? 2 : 0;
+		d.vp = rectangle(0, w - 1, 0, 383);
+		const float z0 = rnd(0.002f, 0.05f);
+		for (int i = 0; i < d.num_vertices; i++) {
+			const float a = float(i) * 6.2831853f / float(d.num_vertices) + rnd(-0.3f, 0.3f);
+			d.v[i].x = cx + rx * std::cos(a);
+			d.v[i].y = cy + ry * std::sin(a);
+			const float z = z0 * rnd(0.8f, 1.25f);
+			d.v[i].p[0] = z;
+			d.v[i].p[1] = rnd(0, 255) * z * 8;
+			d.v[i].p[2] = rnd(0, 255) * z * 8;
+		}
+		d.miny = d.maxy = d.v[0].y;
+		for (int i = 1; i < d.num_vertices; i++) { d.miny = std::min(d.miny, d.v[i].y); d.maxy = std::max(d.maxy, d.v[i].y); }
+		m2_poly_extra_data &e = d.extra;
+		e.state = this;
+		e.colorbase = u32(rnd(0, 1023));
+		e.luma = u8(rnd(0, 255));
+		e.lumabase = u32(rnd(0, 255)) << 7;
+		if (tex) {
+			e.texsheet[0] = m_textureram0; e.texsheet[1] = m_textureram1;
+			e.texwidth = 32 << int(rnd(0, 3)); e.texheight = 32 << int(rnd(0, 3));
+			e.texx = 32 * u32(rnd(0, 63)); e.texy = 32 * u32(rnd(0, 31));
+			e.texwrapx = e.texwrapy = 1;
+			e.texlod = s32(rnd(-200, 600));
+			e.utex = rnd(0, 1) < 0.3f;
+			e.utexminlod = u8(rnd(0, 3));
+		}
+	};
+	// the floor: a grid of quads over the whole picture (a little overlap), then a few over it
+	const int cols = 6, rows = 4;
+	for (int r = 0; r < rows; r++)
+		for (int c = 0; c < cols; c++) {
+			drawn_poly &d = (add(0, 0, 1, 1, true, true), m_bench.back());
+			const float x0 = float(w) * c / cols - 2, x1 = float(w) * (c + 1) / cols + 2, y0 = 384.0f * r / rows - 2, y1 = 384.0f * (r + 1) / rows + 2;
+			const float xs[4] = { x0, x1, x1, x0 }, ys[4] = { y0, y0, y1, y1 };
+			for (int i = 0; i < 4; i++) { d.v[i].x = xs[i] + rnd(-1, 1); d.v[i].y = ys[i] + rnd(-1, 1); }
+			d.miny = std::min({ d.v[0].y, d.v[1].y, d.v[2].y, d.v[3].y }); d.maxy = std::max({ d.v[0].y, d.v[1].y, d.v[2].y, d.v[3].y });
+		}
+	const int over = std::max(1, n / 100);
+	for (int i = 0; i < over; i++)
+		add(rnd(0, float(w)), rnd(150, 384), rnd(50, 120), rnd(20, 60), true, true);
+	for (int i = rows * cols + over; i < n; i++)
+		add(w * 0.5f + rnd(-120, 120), rnd(60, 330), rnd(4, 22), rnd(4, 22), rnd(0, 1) < 0.85f, rnd(0, 1) < 0.6f);
+	// (the fighters in front: drawn first, the rasterizer keeping the first to fill a pixel)
+	std::rotate(m_bench.begin(), m_bench.begin() + std::min<size_t>(m_bench.size(), size_t(rows * cols + over)), m_bench.end());
+}
+
+void model2_video::bench_take(int picture)
+{
+	m_bench.clear();
+	if (picture >= 0 && picture < 4) m_bench = m_pictures[picture].drawn;
+}
+
+void model2_video::bench_export(std::vector<gpu3d_poly> &out) const
+{
+	out.clear();
+	export_list(m_bench, out);
+}
+
+double model2_video::bench_cpu(int part, int parts)
+{
+	const int s = m_scale, w = (496 + 2 * m_ext) * s, h = 384 * s;
+	if (m_bench_map.width() != w || m_bench_map.height() != h) m_bench_map.allocate(w, h);
+	const int r0 = h * part / parts, r1 = h * (part + 1) / parts;
+	const auto t0 = std::chrono::steady_clock::now();
+	m_renderer->set_dest(&m_bench_map);
+	bitmap_rgb32 &dest = m_renderer->destmap();
+	bitmap_ind8 &fill = m_renderer->fillmap();
+	parallel_rows(r1 - r0, [&](int y0, int y1) {
+		const rectangle band(0, w - 1, r0 + y0, r0 + y1 - 1);
+		dest.fill(0x00000000, band);
+		fill.fill(0x00, band);
+		for (const drawn_poly &p : m_bench)
+			m_renderer->draw(p, s, band);
+	}, 4);
+	m_renderer->set_dest(nullptr);
+	return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+}
+
+void model2_video::gpu_rams(gpu3d_rams &out) const
+{
+	out.tex[0] = m_textureram0; out.tex[1] = m_textureram1;
+	out.luma = m_lumaram; out.xlat = m_colorxlat; out.gamma = m_gamma_table;
+	out.gen[0] = m_ram_gen[GPU_TEX0]; out.gen[1] = m_ram_gen[GPU_TEX1]; out.gen[2] = m_ram_gen[GPU_LUMA]; out.gen[3] = m_ram_gen[GPU_XLAT]; out.gen[4] = 0;
+}
+
+void model2_video::owner_map_shown(u32 *out, size_t stride)
+{
+	int w, h;
+	render_size(w, h);
+	bitmap_rgb32 owner;
+	owner.wrap(out, w, h, stride);
+	owner.fill(0xffffffffu, rectangle(0, w - 1, 0, h - 1));
+	const int p = shown_now();
+	if (m_render_test_mode || p < 0) return;
+	const std::vector<drawn_poly> &drawn = m_pictures[p].drawn;
+	for (size_t i = 0; i < drawn.size(); i++)
+		m_renderer->draw_owner(drawn[i], m_scale, u32(i), owner);
 }
 
 /*

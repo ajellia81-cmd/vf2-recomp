@@ -959,8 +959,11 @@ void scsp_device::w16(u32 addr, u16 val)
 			*((u16 *) (m_DSP.COEF + (addr - 0x700) / 2)) = val;
 		else if (addr < 0x7c0)
 			*((u16 *) (m_DSP.MADRS + (addr - 0x780) / 2)) = val;
-		else if (addr < 0x800) // MADRS is mirrored twice
-			*((u16 *) (m_DSP.MADRS + (addr - 0x7c0) / 2)) = val;
+		else if (addr < 0x800)   // 0x7c0-0x7ff: its own storage (see m_madrs_hi)
+		{
+			m_madrs_hi[(addr - 0x7c0) / 2] = val;
+			if (m_madrs_mirror) m_DSP.MADRS[(addr - 0x7c0) / 2] = val;
+		}
 		else if (addr < 0xC00)
 		{
 			*((uint16_t *) (m_DSP.MPRO + (addr - 0x800) / 2)) = val;
@@ -1002,7 +1005,7 @@ u16 scsp_device::r16(u32 addr)
 		else if (addr < 0x7c0)
 			v= *((u16 *) (m_DSP.MADRS + (addr - 0x780) / 2));
 		else if (addr < 0x800)
-			v= *((u16 *) (m_DSP.MADRS + (addr - 0x7c0) / 2));
+			v = m_madrs_mirror ? m_DSP.MADRS[(addr - 0x7c0) / 2] : m_madrs_hi[(addr - 0x7c0) / 2];
 		else if (addr < 0xC00)
 			v= *((u16 *) (m_DSP.MPRO + (addr - 0x800) / 2));
 		else if (addr < 0xE00)

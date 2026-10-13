@@ -498,6 +498,7 @@ void model2a::reset()
 	m_video->smooth_reset();
 	m_last_pic.reset();
 	m_ram_log.clear();
+	for (int k = 0; k < 4; k++) m_video->note_ram(k);   // (the GPU's copies of the RAMs: sent again)
 	for (auto &in : m_scroll_in) in = scroll_input{};
 	for (auto &sm : m_scroll_hist) sm = scroll_sample{};
 	// model2_state::machine_reset and the devices' resets, at time 0
@@ -1418,11 +1419,13 @@ void model2a::render_smooth(float alpha, u32 *out, size_t stride, bool async)
 	draw_picture(out, stride, true, async, std::clamp(alpha, 0.0f, 1.0f));
 }
 
-bool model2a::render_parts(float alpha, u32 *px3d, size_t stride3d, bool async, picture_parts &parts)
+bool model2a::render_parts(float alpha, u32 *px3d, size_t stride3d, bool async, picture_parts &parts, const gpu3d_hook *gpu, bool gpu_only, bool also_cpu)
 {
 	render_wait();
 	if (m_video->shows_framebuffer()) return false;
-	draw_picture(px3d, stride3d, true, async, alpha < 0 ? -1.0f : std::clamp(alpha, 0.0f, 1.0f), &parts);
+	if (gpu && gpu_only && m_ext && !wide_frame()) return false;   // (a 4:3 screen in a wide picture: its sides go by the 3D)
+	parts.gpu3d = false;
+	draw_picture(px3d, stride3d, true, async, alpha < 0 ? -1.0f : std::clamp(alpha, 0.0f, 1.0f), &parts, gpu, also_cpu);
 	return true;
 }
 
@@ -1535,9 +1538,21 @@ void model2a::render_wait()
 
 // Before the RAM the 3D is coloured from changes (texture RAM, the palette from 0x1000, colorxlat,
 // lumaram): a picture being drawn finished, the deferred ones that can still be shown drawn.
+// (the GPU renderer's count of each RAM's changes: gpu3d_rams)
+void model2a::note_gpu_ram(int kind)
+{
+	switch (kind) {
+	case RAM_XLAT: m_video->note_ram(model2_video::GPU_XLAT); break;
+	case RAM_TEX0: m_video->note_ram(model2_video::GPU_TEX0); break;
+	case RAM_TEX1: m_video->note_ram(model2_video::GPU_TEX1); break;
+	case RAM_LUMA: m_video->note_ram(model2_video::GPU_LUMA); break;
+	}
+}
+
 void model2a::before_3d_ram_change(int kind, u32 offset, u32 old, u32 now)
 {
 	render_wait();
+	note_gpu_ram(kind);
 	// (the 3D still to be shown drawn now, in the RAMs as they are, unless the lists and the
 	// changes are kept: then each is drawn when shown, the changes since taken back)
 	if (m_video->deferred() && (!m_video->smooth() || m_ram_log.size() >= 1000000)) {
@@ -1570,6 +1585,7 @@ void model2a::before_3d_ram_change(int kind, u32 offset, u32 old, u32 now)
 void model2a::ram_log_apply(uint64_t frame, bool undo)
 {
 	auto put = [&](const ram_change &c, u32 v) {
+		note_gpu_ram(c.kind);
 		switch (c.kind) {
 		case RAM_XLAT: m_colorxlat[c.offset] = u16(v); break;
 		case RAM_TEX0: m_tex0[c.offset] = v; break;
@@ -1669,7 +1685,7 @@ void model2a::redraw_into(const picture_desc &pic, u32 *out, size_t stride)
 	}
 }
 
-void model2a::draw_picture(u32 *out, size_t stride, bool polygons, bool async, float alpha, picture_parts *parts)
+void model2a::draw_picture(u32 *out, size_t stride, bool polygons, bool async, float alpha, picture_parts *parts, const gpu3d_hook *gpu, bool also_cpu)
 {
 	const int s = m_scale, e = m_ext, w = WIDTH + 2 * e;
 	// smooth motion: the 2D drawn once a game frame, its in-between pictures reusing it
@@ -1715,11 +1731,10 @@ void model2a::draw_picture(u32 *out, size_t stride, bool polygons, bool async, f
 	// (deferred). With the lists kept, a RAM change no longer draws the deferred pictures there and
 	// then (before_3d_ram_change): each is drawn when shown, in its own frame's colours, the RAMs
 	// taken back meanwhile, as smooth motion's are.
-	const bitmap_rgb32 *layer3d0 = smooth3d;
-	const int pic3d = smooth_pic >= 0 ? smooth_pic : polygons && !framebuffer ? m_video->layer_to_draw(layer3d0) : -1;
-	const uint64_t list_frame = smooth_pic >= 0 ? m_video->m_smooth_fb : pic3d >= 0 ? m_video->picture_frame(pic3d) : 0;
-	const bool revert = pic3d >= 0 && m_video->smooth() && !m_ram_log.empty() && m_ram_log.back().frame > list_frame;
-	if (parts) {   // the parts: the 2D as drawn, the 3D copied into `out` (on the job's thread, or now)
+	// (the GPU's way: the picture shown isn't marked drawn, its map left as it was, unless the CPU
+	// draws it too)
+	const bool gpu_way = parts && gpu && !x0 && !framebuffer;
+	if (parts) {
 		parts->w = w; parts->s = s;
 		parts->version = m_2d_version;
 		parts->backdrop = m_bd_pad.data();
@@ -1729,19 +1744,48 @@ void model2a::draw_picture(u32 *out, size_t stride, bool polygons, bool async, f
 		parts->bdx = bdx; parts->bdy = bdy;
 		parts->sides = 0;
 		parts->side_px = nullptr;
+	}
+	if (gpu_way) {   // the 3D handed to the GPU, in its own frame's colours
+		const int gp = smooth_pic >= 0 ? smooth_pic : polygons ? m_video->shown_index() : -1;
+		bool ok = true;
+		if (gp >= 0) {
+			const uint64_t f = smooth_pic >= 0 ? m_video->m_smooth_fb : m_video->picture_frame(gp);
+			const bool back = m_video->smooth() && !m_ram_log.empty() && m_ram_log.back().frame > f;
+			if (back) ram_log_apply(f, true);
+			ok = (*gpu)(*m_video, gp);
+			if (back) ram_log_apply(f, false);
+		}
+		if (ok) {
+			parts->gpu3d = true;
+			parts->has3d = gp >= 0;
+			parts->map3d = nullptr;
+			parts->map_stride = 0;
+			parts->rows3d[0] = 0; parts->rows3d[1] = HEIGHT * s;
+			if (!also_cpu) return;
+		}
+	}
+	const bitmap_rgb32 *layer3d0 = smooth3d;
+	const int pic3d = smooth_pic >= 0 ? smooth_pic : polygons && !framebuffer ? m_video->layer_to_draw(layer3d0) : -1;
+	const uint64_t list_frame = smooth_pic >= 0 ? m_video->m_smooth_fb : pic3d >= 0 ? m_video->picture_frame(pic3d) : 0;
+	const bool revert = pic3d >= 0 && m_video->smooth() && !m_ram_log.empty() && m_ram_log.back().frame > list_frame;
+	if (parts) {   // the parts: the 2D as drawn, the 3D copied into `out` (on the job's thread, or now)
 		const bitmap_rgb32 *layer3d = layer3d0;
 		const int p = pic3d;
-		parts->has3d = layer3d != nullptr;
-		parts->map3d = layer3d ? &layer3d->pix(0) : nullptr;
-		parts->map_stride = layer3d ? layer3d->rowpixels() : 0;
+		const bool gpu_drew = parts->gpu3d;   // (the CPU's too, for checking: into out, the GPU's parts kept)
+		if (!gpu_drew) {
+			parts->has3d = layer3d != nullptr;
+			parts->map3d = layer3d ? &layer3d->pix(0) : nullptr;
+			parts->map_stride = layer3d ? layer3d->rowpixels() : 0;
+		}
 		const int W = w * s, H = HEIGHT * s;
 		// smooth motion's picture, drawn again each time it's used, straight into px3d
 		const bool direct = out && p >= 0 && p == smooth_pic && !x0;   // (a 4:3 screen's sides go by its edges: from the map)
-		if (direct) parts->map3d = nullptr;
-		auto draw3d = [this, out, stride, layer3d, p, revert, list_frame, W, parts, direct, x0] {
+		if (direct && !gpu_drew) parts->map3d = nullptr;
+		auto draw3d = [this, out, stride, layer3d, p, revert, list_frame, W, parts, direct, x0, gpu_drew] {
 			int r0 = 0, r1 = 0;
 			if (layer3d) m_video->drawn_rows(layer3d, r0, r1);
-			parts->rows3d[0] = r0; parts->rows3d[1] = r1;
+			if (gpu_drew) { r0 = 0; r1 = HEIGHT * m_scale; if (out) for (int y = 0; y < r1; y++) memset(out + size_t(y) * stride, 0, size_t(W) * 4); }
+			else { parts->rows3d[0] = r0; parts->rows3d[1] = r1; }
 			if (revert) ram_log_apply(list_frame, true);
 			if (direct) m_video->draw_layer_into(p, out, stride, r0, r1);
 			else if (p >= 0) m_video->draw_layer(p);
@@ -1757,10 +1801,10 @@ void model2a::draw_picture(u32 *out, size_t stride, bool polygons, bool async, f
 				if (a < r0) memset(out + size_t(a) * stride, 0, size_t(W) * 4);
 				if (b > r1) memset(out + size_t(r1) * stride, 0, size_t(W) * 4);
 				edge_smooth(out, stride, nullptr, 0, W / m_scale, a, b, parts->filter, m_pens[0], parts->bdx, parts->bdy);
-				parts->rows3d[0] = a; parts->rows3d[1] = b;
+				if (!gpu_drew) { parts->rows3d[0] = a; parts->rows3d[1] = b; }
 			}
 		};
-		if (async && !x0) {
+		if (async && !x0 && !gpu_drew) {
 			if (!m_job) m_job = std::make_unique<background_job>();
 			m_job_active = true;
 			m_job_reverts = revert;

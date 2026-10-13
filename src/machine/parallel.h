@@ -13,6 +13,9 @@ class row_pool
 public:
 	static row_pool &get() { static row_pool p; return p; }
 	int threads() const { return int(m_workers.size()) + 1; }
+	// called on the thread that takes each band, as it takes it (the host's log of where the
+	// drawing runs: src/host/sysinfo.h)
+	static inline void (*band_hook)() = nullptr;
 
 	// Calls f(begin, end) over [0, n) in per_thread bands for each thread, and waits. With more
 	// than one band a thread, each thread takes the next band when it's done with its last, so a
@@ -65,6 +68,7 @@ private:
 				i = m_next++;
 				parts = m_parts;
 			}
+			if (band_hook) band_hook();
 			auto [b, e] = band(i, n, parts);
 			f(b, e);
 		}
@@ -72,7 +76,9 @@ private:
 
 	row_pool()
 	{
-		int n = std::clamp(int(std::thread::hardware_concurrency()) - 2, 0, 7);   // the CPU and sound keep theirs
+		// the CPU and sound keep theirs; 12 threads in all at most (from 8: at 3x on an M4 Max's 14
+		// cores a fight's picture took 3.9 ms on 8, 3.3 on 12)
+		int n = std::clamp(int(std::thread::hardware_concurrency()) - 2, 0, 11);
 		if (const char *t = getenv("VF2_THREADS")) n = std::clamp(atoi(t) - 1, 0, 31);   // testing: threads in all
 		for (int i = 0; i < n; i++)
 			m_workers.emplace_back([this] {

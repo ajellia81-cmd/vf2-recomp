@@ -22,8 +22,19 @@ FIRST LAUNCH
 3. It asks for your vf2.zip. Choose it. It's copied into
    %APPDATA%\Virtua Fighter 2 Recomp\roms, so you only do this once.
 
-Prefer to keep everything in one folder? Make a "roms" folder next to VirtuaFighter2.exe and put
-vf2.zip in it: settings and saves then stay in that folder too.
+Prefer to keep everything in the game's folder (portable)? Put a file named portable.txt next to
+VirtuaFighter2.exe (an empty one will do: right-click > New > Text Document, and name it
+portable). The game then keeps everything in its own folder and nothing in %APPDATA%: settings,
+saves, screenshots, log.txt, and your vf2.zip, which it asks for once and copies into its "roms"
+folder. (A "roms" folder next to VirtuaFighter2.exe with vf2.zip in it does the same.)
+
+Keep your ROMs in a folder of your own? Add a line to settings.ini (in the data folder, or next
+to VirtuaFighter2.exe in portable mode):  roms_folder = D:\ROMs\vf2
+or give it to the program: a shortcut whose Target ends in  --roms "D:\ROMs\vf2"  (or set the
+environment variable VF2_ROMS). The command line wins, then VF2_ROMS, then settings.ini. The game looks
+there first for vf2.zip and only reads it; log.txt says which folder it used, or where it
+looked when the zip isn't there (it then looks in the usual places, and a zip you then choose is
+copied into your ROM folder).
 
 
 CONTROLS (change them in the menu: Esc, or View/Select on a pad)
@@ -41,14 +52,17 @@ ultrawide), background and screen filters (scanlines, CRT), Show FPS, fullscreen
 music, effects and voices. Game: play style (PC: free play, no boot screen / arcade: coins and
 credits), reset. Arcade settings: difficulty, ring size, rounds, continues and the arcade's own
 service menu. Controls: each player's pad, keys and buttons.
+3D renderer: Auto (the default) draws the 3D on the graphics card, the same picture as the CPU,
+unless it is clearly slower on your machine; GPU or CPU to choose yourself. If the GPU ever
+draws differently or fails, the game uses the CPU for that run (log.txt says so).
 
 If your PC can't keep up at the render scale, the game lowers it for you (for that session).
 
 
 YOUR FILES
 Settings, saves (rankings, the arcade settings), screenshots and your ROMs are in
-%APPDATA%\Virtua Fighter 2 Recomp (or next to the program, with a "roms" folder there). Put your
-own select.png in its "backgrounds" folder to have it used for the player select's widescreen
+%APPDATA%\Virtua Fighter 2 Recomp (or next to the program, with a portable.txt or a "roms" folder
+there). Put your own select.png in its "backgrounds" folder to have it used for the player select's widescreen
 sides.
 
 

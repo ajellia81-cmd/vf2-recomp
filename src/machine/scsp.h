@@ -10,6 +10,7 @@
 #pragma once
 #include "scspdsp.h"
 #include <cmath>
+#include <cstdlib>
 #include <functional>
 #include <vector>
 
@@ -157,6 +158,17 @@ private:
 
 	SCSP_SLOT m_Slots[32];
 	s16 m_RINGBUF[128];
+	// 0x7c0-0x7ff, after the DSP's MADRS (0x780-0x7bf): a deliberate departure from MAME, whose
+	// SCSP mirrors MADRS there. Mednafen's SCSP (its MADRS at 0x780-0x7bf only) and Yabause's
+	// keep them apart, and VF2 shows why: its sound program writes COEF and MADRS, then zeros
+	// 0x7c0-0x7ff. With the mirror that wipes every delay-line address, and its stereo reverb
+	// collapses to a loud near-mono smear (left/right correlation 0.99, the music about 11 dB
+	// louder); kept apart, the reverb is wide (correlation 0.73-0.85 in the music) and the music
+	// sits under the hits as the game means. Another VF2 port reported the same finding. Writes
+	// here are kept and read back; nothing else uses them. VF2_SCSP_MADRS_MIRROR=1 restores
+	// MAME's mirror, for comparing the sound with MAME's (tools/sound_compare.py).
+	u16 m_madrs_hi[32] = {};
+	const bool m_madrs_mirror = [] { const char *e = getenv("VF2_SCSP_MADRS_MIRROR"); return e && *e == '1'; }();
 	u8 m_BUFPTR;
 #if SCSP_FM_DELAY
 	s16 m_DELAYBUF[SCSP_FM_DELAY];
