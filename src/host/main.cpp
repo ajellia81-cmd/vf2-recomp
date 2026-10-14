@@ -867,8 +867,14 @@ int main(int argc, char **argv)
 		// crashed then, so SDL's usual renderer and the CPU's 3D, said so. Deleting gpu-start.crashed
 		// tries again.)
 		const std::string marker = data + "/gpu-start.crashed";
-		const bool crashed = SDL_GetPathInfo(marker.c_str(), nullptr);
-		if (crashed && (e ? strcmp(e, "cpu") != 0 : cfg.renderer3d != 0))
+		// (and a driver known to crash there isn't tried at all: CRT Emudriver, the modified AMD driver
+		// arcade cabinets use, names itself in the card's name)
+		const std::string cards = sysinfo::gpu_names();
+		const bool known_bad = cards.find("CRT Emudriver") != std::string::npos;
+		if (known_bad && (e ? strcmp(e, "cpu") != 0 : cfg.renderer3d != 0))
+			fprintf(stderr, "SDL's gpu renderer: not tried with CRT Emudriver (its start crashes there): SDL's usual renderer, the CPU's 3D\n");
+		const bool crashed = known_bad || SDL_GetPathInfo(marker.c_str(), nullptr);
+		if (crashed && !known_bad && (e ? strcmp(e, "cpu") != 0 : cfg.renderer3d != 0))
 			fprintf(stderr, "SDL's gpu renderer: the last start closed while starting it (%s): SDL's usual renderer, the CPU's 3D\n", marker.c_str());
 		if (!crashed && (e ? strcmp(e, "cpu") != 0 : cfg.renderer3d != 0) && !getenv("SDL_RENDER_DRIVER")) {
 			if (SDL_IOStream *io = SDL_IOFromFile(marker.c_str(), "w")) SDL_CloseIO(io);

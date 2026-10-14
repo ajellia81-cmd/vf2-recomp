@@ -210,6 +210,8 @@ std::string gpus()
 
 } // namespace
 
+std::string gpu_names() { return gpus(); }
+
 void tune()
 {
 #ifdef _WIN32

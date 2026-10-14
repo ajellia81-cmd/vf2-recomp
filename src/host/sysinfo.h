@@ -10,6 +10,8 @@ namespace sysinfo {
 void tune();
 // One line: the CPU (its kinds of core), the system, the GPUs
 std::string describe();
+// The GPUs by name and memory (Windows: DXGI's adapters), as in describe()'s line
+std::string gpu_names();
 // Where the game's threads ran (Windows, on a CPU with performance and efficiency cores: Intel's
 // 12th generation on): the share of the drawing's bands, and of the game's frames, run on the
 // performance cores since the last call. Empty where that isn't known.
