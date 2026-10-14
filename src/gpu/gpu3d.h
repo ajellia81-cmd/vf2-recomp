@@ -110,6 +110,11 @@ public:
 	// The last submit finished: its GPU time and the CPU's time setting it up (ms). False: it failed.
 	virtual bool finish(double *gpu_ms = nullptr, double *cpu_ms = nullptr) = 0;
 	virtual bool busy() const = 0;   // a submit not finished yet
+	// The last submit's picture about to be shown by the host's renderer: where that renderer draws on
+	// the same device and queue (SDL's gpu renderer), its own commands come after the picture's, so the
+	// CPU needn't wait for it. Finished already: its times as finish()'s, true; not yet: *gpu_ms -1,
+	// true (it's still checked: the next submit finishes it). False: it failed. Else finish()'s.
+	virtual bool settle(double *gpu_ms = nullptr, double *cpu_ms = nullptr) { return finish(gpu_ms, cpu_ms); }
 	// The target's pixels read back (tests: checking against the CPU's), rows `stride` apart
 	virtual bool read_target(int target, uint32_t *out, size_t stride) = 0;
 	// The last submit's picture before it went into a target (w * ss x h * ss, 0xAARRGGBB, 0 none),

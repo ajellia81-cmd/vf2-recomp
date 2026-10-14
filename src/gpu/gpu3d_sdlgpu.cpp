@@ -173,7 +173,13 @@ public:
 
 	bool submit(const gpu3d_poly *polys, size_t count, const gpu3d_frame &f, int target) override
 	{
-		if (!finish()) return false;
+		// (2026-10-15, vf2-recomp #3 again: with the show no longer waiting, the wait moved here, ~7 ms
+		// "draw" a picture at 6x on an RTX 5080: the last picture's fence comes after the renderer's
+		// present, so waiting for it took in the screen's refresh. A picture still in flight is left
+		// alone; only a third waits, for the oldest. Targets, buffers and the upload (cycled) are the
+		// GPU's to order: its queue runs them in turn.)
+		if (target < 0) { if (!finish()) return false; }   // (a test of its time: alone on the GPU)
+		else if (!reap(1)) return false;
 		if (target < -1 || target >= int(m_tg.size()) || (target >= 0 && (f.w != m_tw || f.h != m_th)) || f.ss < 1) return false;
 		const auto t0 = clk::now();
 		const int W = f.w * f.ss, H = f.h * f.ss, s = f.scale * f.ss;
@@ -212,21 +218,41 @@ public:
 		return submit_cb(cb, t0);
 	}
 
+	// the oldest pictures in flight finished, until at most `keep` are left (waiting where needed)
+	bool reap(size_t keep, bool wait = true)
+	{
+		while (m_flight.size() > keep || (!m_flight.empty() && SDL_QueryGPUFence(m_dev, m_flight.front().f))) {
+			const bool ok = SDL_WaitForGPUFences(m_dev, true, &m_flight.front().f, 1);
+			m_last_gpu_ms = ms_since(m_flight.front().t);
+			SDL_ReleaseGPUFence(m_dev, m_flight.front().f);
+			m_flight.erase(m_flight.begin());
+			if (!ok) { fprintf(stderr, "gpu3d sdl_gpu: a picture failed (%s)\n", SDL_GetError()); m_last_ok = false; }
+			if (!wait && m_flight.size() <= keep) break;
+		}
+		return m_last_ok;
+	}
 	bool finish(double *gpu_ms = nullptr, double *cpu_ms = nullptr) override
 	{
-		if (m_fence) {
-			const bool ok = SDL_WaitForGPUFences(m_dev, true, &m_fence, 1);
-			m_last_gpu_ms = ms_since(m_submitted);
-			SDL_ReleaseGPUFence(m_dev, m_fence);
-			m_fence = nullptr;
-			if (!ok) { fprintf(stderr, "gpu3d sdl_gpu: a picture failed (%s)\n", SDL_GetError()); m_last_ok = false; }
-			else m_last_ok = true;
-		}
+		reap(0);
 		if (gpu_ms) *gpu_ms = m_last_gpu_ms;
 		if (cpu_ms) *cpu_ms = m_cpu_ms;
 		return m_last_ok;
 	}
-	bool busy() const override { return m_fence != nullptr; }
+	bool busy() const override { return !m_flight.empty(); }
+	// (2026-10-14, vf2-recomp #3: an RTX 5080 at 6x on Direct3D 12 waited ~7.7 ms a picture here, for its
+	// fence: the picture went in after the renderer's previous present, so the wait took in the screen's
+	// refresh too, and 120 pictures a second couldn't be met. The renderer's commands come after the
+	// picture's on this device's queue, so nothing needs the CPU to wait: the next submit finishes it.)
+	bool settle(double *gpu_ms = nullptr, double *cpu_ms = nullptr) override
+	{
+		reap(1, false);
+		if (!m_flight.empty() && !SDL_QueryGPUFence(m_dev, m_flight.back().f)) {
+			if (gpu_ms) *gpu_ms = -1;
+			if (cpu_ms) *cpu_ms = m_cpu_ms;
+			return m_last_ok;
+		}
+		return finish(gpu_ms, cpu_ms);
+	}
 
 	bool read_target(int target, uint32_t *out, size_t stride) override
 	{
@@ -297,7 +323,7 @@ private:
 	{
 		n = std::max<uint32_t>(n, 16);
 		if (b && have >= n) return true;
-		if (b) SDL_ReleaseGPUBuffer(m_dev, b);
+		if (b) { reap(0); SDL_ReleaseGPUBuffer(m_dev, b); }   // (a picture in flight may use it: finished first)
 		have = n + n / 2;
 		b = buffer(have, rw);
 		if (&b == &m_bd || &b == &m_mid) m_bd_fresh = true;
@@ -307,7 +333,7 @@ private:
 	{
 		n = std::max<uint32_t>(n, 16);
 		if (t && have >= n) return true;
-		if (t) SDL_ReleaseGPUTransferBuffer(m_dev, t);
+		if (t) { reap(0); SDL_ReleaseGPUTransferBuffer(m_dev, t); }
 		SDL_GPUTransferBufferCreateInfo ti = {};
 		ti.usage = usage;
 		ti.size = have = n + n / 2;
@@ -318,9 +344,9 @@ private:
 	bool submit_cb(SDL_GPUCommandBuffer *cb, clk::time_point t0)
 	{
 		m_cpu_ms = ms_since(t0);
-		m_submitted = clk::now();
-		m_fence = SDL_SubmitGPUCommandBufferAndAcquireFence(cb);
-		if (!m_fence) { fprintf(stderr, "gpu3d sdl_gpu: submit: %s\n", SDL_GetError()); m_last_ok = false; return false; }
+		SDL_GPUFence *fe = SDL_SubmitGPUCommandBufferAndAcquireFence(cb);
+		if (!fe) { fprintf(stderr, "gpu3d sdl_gpu: submit: %s\n", SDL_GetError()); m_last_ok = false; return false; }
+		m_flight.push_back({ fe, clk::now() });
 		return true;
 	}
 
@@ -499,8 +525,8 @@ private:
 	std::vector<uint32_t> m_jobpoly, m_jobbase;
 	std::vector<SDL_GPUTexture *> m_tg;
 	int m_tw = 0, m_th = 0, m_pw = 0, m_ph = 0;
-	SDL_GPUFence *m_fence = nullptr;
-	clk::time_point m_submitted;
+	struct flight { SDL_GPUFence *f; clk::time_point t; };
+	std::vector<flight> m_flight;   // (pictures submitted, not yet seen finished: the oldest first)
 	double m_cpu_ms = 0, m_last_gpu_ms = 0;
 	bool m_last_ok = true;
 };

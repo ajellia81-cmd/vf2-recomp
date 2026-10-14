@@ -862,9 +862,19 @@ int main(int argc, char **argv)
 	// (SDL_RENDER_DRIVER, SDL's own, chooses over this.)
 	{
 		const char *e = getenv("VF2_3D");
-		if ((e ? strcmp(e, "cpu") != 0 : cfg.renderer3d != 0) && !getenv("SDL_RENDER_DRIVER")) {
+		// (2026-10-15, vf2-recomp #6: an HD 7800 with CRT Emudriver closed inside the gpu renderer's start,
+		// no message, every start since v0.1.2. A marker is left while it starts: there next time, it
+		// crashed then, so SDL's usual renderer and the CPU's 3D, said so. Deleting gpu-start.crashed
+		// tries again.)
+		const std::string marker = data + "/gpu-start.crashed";
+		const bool crashed = SDL_GetPathInfo(marker.c_str(), nullptr);
+		if (crashed && (e ? strcmp(e, "cpu") != 0 : cfg.renderer3d != 0))
+			fprintf(stderr, "SDL's gpu renderer: the last start closed while starting it (%s): SDL's usual renderer, the CPU's 3D\n", marker.c_str());
+		if (!crashed && (e ? strcmp(e, "cpu") != 0 : cfg.renderer3d != 0) && !getenv("SDL_RENDER_DRIVER")) {
+			if (SDL_IOStream *io = SDL_IOFromFile(marker.c_str(), "w")) SDL_CloseIO(io);
 			const auto t0 = std::chrono::steady_clock::now();
 			ren = SDL_CreateRenderer(win, "gpu");
+			SDL_RemovePath(marker.c_str());
 			if (!ren) fprintf(stderr, "SDL's gpu renderer: %s (SDL's usual renderer, the CPU's 3D)\n", SDL_GetError());
 			else fprintf(stderr, "SDL's gpu renderer started in %.0f ms\n", std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
 		}
@@ -1098,6 +1108,7 @@ int main(int argc, char **argv)
 		bool want_real = false;   // the start's check was of the test scene: once more on a fight's
 		// in play: the GPU's pictures, its time and the CPU's setting them up
 		double sum_gpu = 0, sum_cpu = 0; uint64_t pictures = 0;
+		uint64_t unwaited = 0;   // (shown still drawing: the renderer after it on the GPU, the CPU not waiting)
 		// VF2_GPU3D_CHECK
 		int check_every = 0;
 		uint64_t checked = 0, check_px = 0, check_diff = 0, check_bad = 0;
@@ -1203,6 +1214,15 @@ int main(int argc, char **argv)
 		double gms = 0, cms = 0;
 		if (!g3.dev->finish(&gms, &cms)) { g3_fail("a picture failed on the GPU"); return false; }
 		g3.sum_gpu += gms; g3.sum_cpu += cms; g3.pictures++;
+		return true;
+	};
+	// the GPU's picture about to be shown: not waited for where the renderer comes after it on the same
+	// queue (see gpu3d::settle); its timings counted when it had finished, else at the next submit's
+	auto g3_settle = [&]() -> bool {
+		if (!g3.dev || !g3.dev->busy()) return !g3.failed;
+		double gms = 0, cms = 0;
+		if (!g3.dev->settle(&gms, &cms)) { g3_fail("a picture failed on the GPU"); return false; }
+		if (gms >= 0) { g3.sum_gpu += gms; g3.sum_cpu += cms; g3.pictures++; } else g3.unwaited++;
 		return true;
 	};
 	// Auto's check: the CPU's and the GPU's time for a picture (ms: the GPU's from handing it over
@@ -1380,7 +1400,7 @@ int main(int argc, char **argv)
 		async_pending = false;
 		if (g3.pending) {   // (the 3D on the GPU: finished, put together now)
 			g3.pending = gpu.pending = false;
-			const bool ok = g3_finish();
+			const bool ok = show ? g3_settle() : g3_finish();
 			if (!show || !ok) { gpu_unlock(); return false; }
 			if (!gpu_pic.put(gpu.parts, gpu.parts.has3d ? g3.tex[g3.pending_t] : nullptr, g3.pending_ss)) return false;
 			g3_check_shown();
@@ -2674,7 +2694,7 @@ int main(int argc, char **argv)
 						const uint64_t te = SDL_GetTicksNS();
 						pace.draw += te - td;
 						gpu_pic.upload_2d(gpu.parts, ss);   // (the 2D sent up while the GPU draws the 3D)
-						if (g3_finish() && gpu_pic.put(gpu.parts, gpu.parts.has3d ? g3.tex[target] : nullptr, ss)) {
+						if (g3_settle() && gpu_pic.put(gpu.parts, gpu.parts.has3d ? g3.tex[target] : nullptr, ss)) {
 							g3_check_shown();
 							gpu.shown = true;
 							shown_pic = m.last_picture();
@@ -3019,6 +3039,7 @@ int main(int argc, char **argv)
 			// there, and a budget of 60 a second would leave some refreshes without one)
 			if (govern && !stepped && smooth_on() && !smooth_limit && screen_hz > 65 && judged && (slow_windows >= 3 || (over && load.over + 1 >= 3))) {
 				smooth_limit = stepped = true;
+				if (gov_raised) gov_no_raise = true;   // (lifted, then short again: kept this run)
 				gov_note += "gov:smooth60,";
 				fprintf(stderr, "%.1f frames a second, %.1f shown, busy %.0f%% of the time: smooth pictures limited to 60 a second\n", fps, shown_fps, busy * 100);
 				log_state("the governor's");
@@ -3045,6 +3066,18 @@ int main(int argc, char **argv)
 			// (calm: the frames and pictures all there, busy under 55% of the time)
 			const bool calm = judged && !slow && !over && gbusy < 0.55 && gfps >= 56.5 && gshown >= enough;
 			gov_calm = !judged ? gov_calm : calm ? gov_calm + 1 : 0;
+			// (2026-10-14, vf2-recomp #3: an RTX 5080 at 6x was limited to 60 by a slow first few seconds, then
+			// sat at 40% busy for minutes, still at 60: a limit is lifted again once things are calm, the
+			// smooth pictures' first, and a limit that comes straight back stays)
+			if (govern && !stepped && gov_calm >= 5 && !gov_no_raise && smooth_limit && scale == player_scale && aa == player_aa) {
+				fprintf(stderr, "%.1f frames a second, %.1f shown, busy %.0f%% of the time: smooth pictures no longer limited to 60\n", fps, shown_fps, busy * 100);
+				smooth_limit = false;
+				gov_note += "gov:smooth-all,";
+				gov_raised = true;
+				gov_calm = 0;
+				load.over = load.slow = 0;
+				log_state("the governor's");
+			} else
 			if (govern && !stepped && gov_calm >= 5 && !gov_no_raise && (scale < player_scale || aa != player_aa)) {
 				if (scale < player_scale) {
 					fprintf(stderr, "%.1f frames a second, %.1f shown, busy %.0f%% of the time: render scale back up to %dx\n", fps, shown_fps, busy * 100, scale + 1);
@@ -3077,13 +3110,15 @@ int main(int argc, char **argv)
 						ten.upload / pics, ten.present / passes, scale, !smooth_on() ? ", smooth off" : "");
 				if (const std::string where = sysinfo::placement(); !where.empty()) fprintf(stderr, "  %s\n", where.c_str());
 				ten = pace_ten{};
-				static uint64_t g3_pics0 = 0;
+				static uint64_t g3_pics0 = 0, g3_unw0 = 0;
 				static double g3_gpu0 = 0, g3_cpu0 = 0;
 				if (g3.pictures > g3_pics0) {
 					const double n = double(g3.pictures - g3_pics0);
-					fprintf(stderr, "the 3D on the GPU: %.0f pictures, a picture %.2f ms on the GPU, %.2f handing it over\n", n, (g3.sum_gpu - g3_gpu0) / n, (g3.sum_cpu - g3_cpu0) / n);
-					g3_pics0 = g3.pictures; g3_gpu0 = g3.sum_gpu; g3_cpu0 = g3.sum_cpu;
-				}
+					fprintf(stderr, "the 3D on the GPU: %.0f pictures, a picture %.2f ms on the GPU, %.2f handing it over", n, (g3.sum_gpu - g3_gpu0) / n, (g3.sum_cpu - g3_cpu0) / n);
+					if (g3.unwaited > g3_unw0) fprintf(stderr, "; %llu more shown still drawing (not waited for)", (unsigned long long)(g3.unwaited - g3_unw0));
+					fprintf(stderr, "\n");
+				} else if (g3.unwaited > g3_unw0) fprintf(stderr, "the 3D on the GPU: %llu pictures shown still drawing (not waited for)\n", (unsigned long long)(g3.unwaited - g3_unw0));
+				g3_pics0 = g3.pictures; g3_gpu0 = g3.sum_gpu; g3_cpu0 = g3.sum_cpu; g3_unw0 = g3.unwaited;
 			}
 			pace = pace_window{};
 		}
