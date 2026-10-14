@@ -1048,7 +1048,14 @@ int main(int argc, char **argv)
 	//   VF2_GPU3D_CHECK=n    every n-th GPU picture also drawn on the CPU and compared (the log)
 	//   VF2_AUTO_RECHECK=p,..  Auto checked again from these passes on (at the next quiet moment;
 	//                        VF2_AUTO_ANYTIME=1: at once, wherever it is: tests of its numbers)
+	//   VF2_GPU3D_TEST_DIFF=n  tests: the GPU's picture checked made to differ in n pixels (-1: all)
 	enum { R3D_CPU, R3D_GPU, R3D_AUTO };
+	// SDL_GPU's check of its pictures against the CPU's: how many differing pixels are rounding
+	// (some graphics cards' drivers, NVIDIA's on Direct3D 12, put a handful of pixels a hair off),
+	// the GPU kept: up to GPU_ROUNDING_PX, or 0.01% of the picture if more; when the player chose the
+	// GPU (not Auto), up to 1% (only a picture mostly wrong, a broken GPU, puts the 3D on the CPU)
+	constexpr long long GPU_ROUNDING_PX = 64;
+	constexpr double GPU_ROUNDING_SHARE = 0.0001, GPU_ROUNDING_CHOSEN = 0.01;
 	static const char *R3D_NAMES[] = { "CPU", "GPU", "Auto" };
 	constexpr int G3_TARGETS = 5;   // (see gpu3d_state::tex)
 	struct gpu3d_state {
@@ -1274,15 +1281,27 @@ int main(int argc, char **argv)
 		int w = 0, h = 0;
 		v.render_size(w, h);
 		std::vector<uint32_t> gp(size_t(w) * h);
+		long long cover = 0;   // (of the differing pixels, drawn on one and not the other: an edge's)
+		int most = 0;          // (the largest difference in a colour channel, of those drawn on both)
 		auto differ = [&]() -> long long {
 			if (!g3.dev->read_picture(gp.data(), size_t(w))) return -1;
 			const bitmap_rgb32 &c = v.bench_picture();
 			if (c.width() != w || c.height() != h) return -1;
+			// tests: VF2_GPU3D_TEST_DIFF=n, the GPU's picture made to differ in n pixels (-1: all of it garbage)
+			if (const char *t = getenv("VF2_GPU3D_TEST_DIFF")) {
+				const long long k = atoll(t);
+				for (size_t i = 0; i < gp.size() && (k < 0 || (long long)i < k); i++) gp[(i * 7919) % gp.size()] ^= 0x00102030u;
+			}
 			long long n = 0;
 			for (int y = 0; y < h; y++) {
 				const u32 *r = &c.pix(y);
 				const uint32_t *g = gp.data() + size_t(y) * w;
-				for (int x = 0; x < w; x++) n += (r[x] == 0) != (g[x] == 0) || ((r[x] ^ g[x]) & 0xffffff);
+				for (int x = 0; x < w; x++) {
+					if (!((r[x] == 0) != (g[x] == 0) || ((r[x] ^ g[x]) & 0xffffff))) continue;
+					n++;
+					if ((r[x] == 0) != (g[x] == 0)) { cover++; continue; }
+					for (int sh = 0; sh < 24; sh += 8) most = std::max(most, std::abs(int((r[x] >> sh) & 255) - int((g[x] >> sh) & 255)));
+				}
 			}
 			return n;
 		};
@@ -1295,8 +1314,21 @@ int main(int argc, char **argv)
 		v.bench_cpu(0, 1);
 		const long long d = differ();
 		const bool game = !strcmp(g3.checked_on, "the game's scene");
+		if (d < 0) { g3_fail("its picture couldn't be read back"); return false; }
 		if (d != 0) {
-			fprintf(stderr, "the 3D on the GPU: its picture of %s isn't the CPU's (%lld of %d x %d pixels differ)\n", g3.checked_on, d, w, h);
+			// A few pixels apart is rounding (a graphics card's driver doing a sum or an edge a hair
+			// differently), not a broken GPU: the GPU's kept. Beyond that the CPU's 3D from now on;
+			// when the player chose the GPU (not Auto), only for a picture that's mostly wrong.
+			const long long px = (long long)w * h;
+			const long long ok = std::max(GPU_ROUNDING_PX, (long long)(px * (g3.mode == R3D_GPU ? GPU_ROUNDING_CHOSEN : GPU_ROUNDING_SHARE)));
+			if (d <= ok) {
+				fprintf(stderr, "the 3D on the GPU: its picture of %s: %lld of %d x %d pixels differ by rounding (%lld at an edge, colours by %d at most; up to %lld kept): keeping the GPU\n",
+						g3.checked_on, d, w, h, cover, most, ok);
+				if (game) g3.verify = 0;
+				return true;
+			}
+			fprintf(stderr, "the 3D on the GPU: its picture of %s isn't the CPU's (%lld of %d x %d pixels differ, %lld at an edge, colours by %d at most; over the %lld kept)\n",
+					g3.checked_on, d, w, h, cover, most, ok);
 			g3_fail("its pictures aren't the CPU's");
 			return false;
 		}
