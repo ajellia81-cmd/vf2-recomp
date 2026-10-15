@@ -186,6 +186,10 @@ program to C++ (into `build/`, from your `roms/vf2.zip`: never committed) for `b
 interpreter and the recompiled code side by side and compares the CPU's whole state, the clocks, the RAMs and the
 pictures as they go. `vf2 --interp` and `vf2run --interp` run the interpreter.
 
+`tools/dump_textures.sh path/to/vf2.zip` saves the game's textures as PNGs (into `build/textures`): coloured as in
+the game, the grey levels they're made of, and a list of where each one sits. It runs attract mode headless; for the
+rest, play with `VF2_DUMP_TEXTURES=folder` set and each texture is saved the first time it's drawn.
+
 ## How it's made
 
 Made with the help of AI coding tools. Every build is checked against the arcade: the recompiled i960 program runs

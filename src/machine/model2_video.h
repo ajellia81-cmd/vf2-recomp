@@ -217,6 +217,7 @@ public:
 
 private:
 	friend class model2_renderer;
+	friend class texdump;          // VF2_DUMP_TEXTURES (texdump.h)
 	std::unique_ptr<raster_state> m_raster;
 	std::unique_ptr<geo_state> m_geo;
 	std::unique_ptr<model2_renderer> m_renderer;

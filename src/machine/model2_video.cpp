@@ -96,6 +96,7 @@
 
 #include "model2_video.h"
 #include "parallel.h"
+#include "texdump.h"
 #include "../gpu/gpu3d.h"
 
 #include <bit>
@@ -1191,6 +1192,8 @@ void model2_video::render_polygons()
 		while (pic == m_shown[1] || pic == m_shown[2]) pic++;
 	build_drawn(raster, m_pictures[pic].drawn);
 	m_pic_frame[pic] = m_parsed_frame;
+	static texdump *const dump = getenv("VF2_DUMP_TEXTURES") ? new texdump(getenv("VF2_DUMP_TEXTURES")) : nullptr;
+	if (dump) dump->add(m_pictures[pic].drawn, *this, m_parsed_frame);
 	if (m_defer) m_pictures[pic].deferred = m_deferred = true;
 	else raster_drawn(pic);
 
