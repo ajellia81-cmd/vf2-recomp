@@ -1495,10 +1495,13 @@ int main(int argc, char **argv)
 		bool on = true;
 		if (g3.mode == R3D_AUTO) {
 			// the GPU unless it's clearly slower in a way that matters: over 1.5x the CPU's time and
-			// over 8 ms (half the frame's 17.4), the frame then at risk; back to it within 1.3x or
-			// under 6 ms (a GPU a little slower than a fast Mac's CPU, well inside the frame, is kept)
+			// over 14 ms (0.8 of the frame's 17.4: the GPU draws alongside the next frame, pipelined,
+			// so only near a whole frame is the frame at risk); back to it within 1.3x or under 12 ms.
+			// (It was 8 ms, half the frame: a Radeon 780M at 6x (vf2-recomp #10) takes ~9.5 ms on any
+			// scene, its pixels' passes a floor, and a light scene checked after the menu put the 3D
+			// on the CPU (4.8 ms there), which then took ~28 ms on a fight's and dropped to 30 fps.)
 			const double c = g3.cpu_ms, g = g3.gpu_ms;
-			on = was || !g3.last_check ? !(g > 1.5 * c && g > 8.0) : (g <= 1.3 * c || g < 6.0);
+			on = was || !g3.last_check ? !(g > 1.5 * c && g > 14.0) : (g <= 1.3 * c || g < 12.0);
 			auto_keep(on);
 		}
 		g3.on = on;
