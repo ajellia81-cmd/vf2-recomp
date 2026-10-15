@@ -23,7 +23,7 @@
 // (--roms <folder>, VF2_ROMS, or roms_folder = <folder> in settings.ini, in that order) is looked
 // in first for vf2.zip, and never written to unless a set is picked while it has none.
 //
-// The menu (Esc, or View tapped on a pad) pauses the game and its sound: Display (render scale,
+// The menu (Esc, or on a pad View tapped, L3 + R3 or the touchpad click) pauses the game and its sound: Display (render scale,
 // antialiasing, the 3D's renderer: CPU, GPU or Auto, picture shape, background and screen filters, the frame rate, fullscreen), Sound
 // (the overall, music and effects volumes), Game (PC or arcade play style, reset), Arcade
 // settings (the game's own, from its test mode: a change restarts the game as the menu closes;
@@ -87,8 +87,9 @@
 //        the NVRAM folder), Tab held: as fast as it goes
 // Pads:  d-pad or left stick, X guard, A punch, B kick, Y guard+punch, RB punch+kick,
 //        LB guard+kick, RT all three, Start (with --arcade: starts only with a credit, as the
-//        cabinet's start button); View tapped: the menu (with --arcade: a coin; View held + Start:
-//        the menu); a Coin key or button for each player (none by default); View + LB: render scale;
+//        cabinet's start button); Menu (View tapped by default), L3 + R3 or the touchpad click: the
+//        menu (View held + Start too); a Coin key or button for each player (none by default; View
+//        tapped is a coin only when it's set as Coin); View + LB: render scale;
 //        View + RB: picture shape. Pads come and go as they're plugged in; each player's pad and
 //        buttons are chosen in Controls.
 //
@@ -269,6 +270,7 @@ bool g_pc_mode = true;
 struct pad_state
 {
 	bool back_was = false, back_combo = false, start_was = false;
+	bool menu_was = false, touch_was = false, sticks_was = false;   // the menu's other buttons (edges)
 	int coin_frames = 0, start_delay = -1, start_frames = 0;
 };
 
@@ -295,12 +297,16 @@ hotkey read_inputs(model2a &m, SDL_Gamepad *pads[2], pad_state ps[2], const play
 		if (ks[k.key]) in[k.port] |= k.bit;
 	auto key = [&](SDL_Scancode k) { return k != SDL_SCANCODE_UNKNOWN && ks[k]; };
 	hotkey hk = hotkey::none;
-	static bool key_start_was[2], key_coin_was[2], pad_coin_was[2];
+	static bool key_start_was[2], key_coin_was[2], pad_coin_was[2], key_menu_was[2];
 	for (int p = 0; p < 2; p++) {
 		pad_state &st = ps[p];
 		// Start is the cabinet's start button: in the arcade way it starts only with a credit (coins
-		// come from the Coin binding, the 5 and 6 keys, or View tapped on a pad)
+		// come from the Coin binding or the 5 and 6 keys)
 		auto press_start = [&] { st.start_delay = 0; };
+		// a key set as Menu opens it too (Esc always does)
+		const bool kmenu = key(ctl[p].key[C_MENU]);
+		if (kmenu && !key_menu_was[p]) hk = hotkey::menu;
+		key_menu_was[p] = kmenu;
 		for (int a = 0; a < C_START; a++)
 			if (key(ctl[p].key[a])) in[1 + p] |= BITS[a];
 		const bool kstart = key(ctl[p].key[C_START]);
@@ -320,9 +326,24 @@ hotkey read_inputs(model2a &m, SDL_Gamepad *pads[2], pad_state ps[2], const play
 			const int dead = 12000;
 			const bool back = btn(SDL_GAMEPAD_BUTTON_BACK);
 			const bool start = player_controls::pad_down(g, ctl[p].pad[C_START]);
-			const bool pcoin = player_controls::pad_down(g, ctl[p].pad[C_COIN]);
+			// Coin and Menu on View are its tap (below), so View + LB and the like stay hotkeys
+			const int coin_code = ctl[p].pad[C_COIN], menu_code = ctl[p].pad[C_MENU];
+			const bool pcoin = coin_code != SDL_GAMEPAD_BUTTON_BACK && player_controls::pad_down(g, coin_code);
 			if (pcoin && !pad_coin_was[p] && !g_pc_mode) st.coin_frames = 6;
 			pad_coin_was[p] = pcoin;
+			const bool pmenu = menu_code != SDL_GAMEPAD_BUTTON_BACK && player_controls::pad_down(g, menu_code);
+			if (pmenu && !st.menu_was && !back) hk = hotkey::menu;   // (View held: LB and RB are its hotkeys)
+			st.menu_was = pmenu;
+			// L3 + R3 and the touchpad click (a PlayStation pad's) always open the menu as well, so a
+			// pad without a View button, or with Menu moved, can't be locked out of it
+			const bool sticks = btn(SDL_GAMEPAD_BUTTON_LEFT_STICK) && btn(SDL_GAMEPAD_BUTTON_RIGHT_STICK);
+			if (sticks && !st.sticks_was) hk = hotkey::menu;
+			st.sticks_was = sticks;
+			bool touch_bound = false;
+			for (int a = C_GUARD; a < C_COUNT; a++) touch_bound |= ctl[p].pad[a] == SDL_GAMEPAD_BUTTON_TOUCHPAD;
+			const bool touch = !touch_bound && btn(SDL_GAMEPAD_BUTTON_TOUCHPAD);
+			if (touch && !st.touch_was) hk = hotkey::menu;
+			st.touch_was = touch;
 			if (btn(SDL_GAMEPAD_BUTTON_DPAD_UP) || ly < -dead) b |= PL_UP;
 			if (btn(SDL_GAMEPAD_BUTTON_DPAD_DOWN) || ly > dead) b |= PL_DOWN;
 			if (btn(SDL_GAMEPAD_BUTTON_DPAD_LEFT) || lx < -dead) b |= PL_LEFT;
@@ -341,10 +362,10 @@ hotkey read_inputs(model2a &m, SDL_Gamepad *pads[2], pad_state ps[2], const play
 					if (player_controls::pad_down(g, ctl[p].pad[a])) b |= BITS[a];   // (not Start nor Coin)
 				if (start && !st.start_was) press_start();
 			}
-			// View tapped on its own: the menu (with --arcade: a coin)
+			// View tapped on its own: whichever of Menu and Coin it's set as
 			if (!back && st.back_was && !st.back_combo) {
-				if (g_pc_mode) hk = hotkey::menu;
-				else st.coin_frames = 6;
+				if (menu_code == SDL_GAMEPAD_BUTTON_BACK) hk = hotkey::menu;
+				else if (coin_code == SDL_GAMEPAD_BUTTON_BACK && !g_pc_mode) st.coin_frames = 6;
 			}
 			if (!back) st.back_combo = false;
 			st.back_was = back;
@@ -441,6 +462,7 @@ struct settings
 	// scale and antialiasing ("3x1:g 2x1:c": a start there starts on that one, then checks it)
 	int renderer3d = 2, gpu_quality = 0;
 	std::string auto3d;
+	std::string gpu3d_failed;   // SDL_GPU's drivers whose 3D failed here ("direct3d12 vulkan"): the next start tries the next
 	std::string roms_folder;   // where the player keeps vf2.zip (roms_folder = ...: kept as written)
 	int arcade_coin = -2;   // the arcade way's coin setting, kept while the PC way has FREE PLAY in its place (-1: none to give back; -2: none kept yet)   // the render scale this machine needed pipelining at (the governor's, kept: a start there starts pipelined)
 	bool fullscreen = false, timings = false, arcade = false, smooth_bg = false, show_fps = false, smooth = true;
@@ -479,6 +501,7 @@ struct settings
 		num("renderer_3d", renderer3d, 0, 2);
 		num("gpu_quality", gpu_quality, 0, 1);
 		if (auto it = kv.find("auto_3d"); it != kv.end()) auto3d = it->second;
+		if (auto it = kv.find("gpu_3d_failed"); it != kv.end()) gpu3d_failed = it->second;
 		if (auto it = kv.find("roms_folder"); it != kv.end()) roms_folder = it->second;
 		num("arcade_coins", arcade_coin, -2, 0x18);
 		if (ring && (ring < 1300 || ring % 100)) ring = 0;   // 0: by difficulty
@@ -489,6 +512,15 @@ struct settings
 		flag("show_fps", show_fps);
 		flag("smooth_motion", smooth);
 		for (int p = 0; p < 2; p++) ctl[p].load(kv, p);
+		// settings from before the Menu button: Arcade mode's View tapped was a coin. It stays one
+		// (as Coin, so the menu is L3 + R3, the touchpad, View + Start or Esc), so a cabinet's coin
+		// button keeps working after the update
+		if (arcade && !kv.count("p1_pad_menu"))
+			for (auto &c : ctl)
+				if (c.pad[C_COIN] == PAD_NONE && c.pad[C_MENU] == SDL_GAMEPAD_BUTTON_BACK) {
+					c.pad[C_COIN] = SDL_GAMEPAD_BUTTON_BACK;
+					c.pad[C_MENU] = PAD_NONE;
+				}
 	}
 
 	void save(const std::string &path) const
@@ -502,6 +534,7 @@ struct settings
 				"background_filter = %d\nmusic_volume = %d\neffects_volume = %d\nantialiasing = %d\nshow_fps = %d\nscreen_filter = %d\nring_size = %d\nsmooth_motion = %d\npipelined_at = %d\narcade_coins = %d\n", scale, aspect,
 				int(fullscreen), int(timings), volume, int(arcade), int(smooth_bg), music, effects, aa, int(show_fps), filter, ring, int(smooth), pipelined_at, arcade_coin);
 		fprintf(f, "renderer_3d = %d\ngpu_quality = %d\nauto_3d = %s\n", renderer3d, gpu_quality, auto3d.c_str());
+		if (!gpu3d_failed.empty()) fprintf(f, "gpu_3d_failed = %s\n", gpu3d_failed.c_str());
 		if (!roms_folder.empty()) fprintf(f, "roms_folder = %s\n", roms_folder.c_str());
 		for (int p = 0; p < 2; p++) ctl[p].save(f, p);
 		const bool flushed = flush_to_disk(f);
@@ -879,7 +912,75 @@ int main(int argc, char **argv)
 		if (!crashed && (e ? strcmp(e, "cpu") != 0 : cfg.renderer3d != 0) && !getenv("SDL_RENDER_DRIVER")) {
 			if (SDL_IOStream *io = SDL_IOFromFile(marker.c_str(), "w")) SDL_CloseIO(io);
 			const auto t0 = std::chrono::steady_clock::now();
+			// (a driver whose 3D failed its check here before is passed over: Direct3D 12's for Vulkan,
+			// SDL's other on Windows (some older cards draw nothing on one and are fine on the other);
+			// SDL_GPU_DRIVER, SDL's own, chooses over this)
+			auto failed_before = [&](const char *d) { return (" " + cfg.gpu3d_failed + " ").find(std::string(" ") + d + " ") != std::string::npos; };
+			const bool try_vulkan = failed_before("direct3d12") && !failed_before("vulkan") && !getenv("SDL_GPU_DRIVER");
+			if (try_vulkan) {
+				fprintf(stderr, "SDL's gpu renderer: Vulkan (the 3D failed on Direct3D 12 here before)\n");
+				SDL_SetHint(SDL_HINT_GPU_DRIVER, "vulkan");
+			}
 			ren = SDL_CreateRenderer(win, "gpu");
+			if (!ren && try_vulkan) {   // (no Vulkan here: Direct3D 12 again, the 3D on the CPU)
+				fprintf(stderr, "SDL's gpu renderer: Vulkan won't start (%s): Direct3D 12\n", SDL_GetError());
+				cfg.gpu3d_failed += " vulkan";
+				cfg_dirty = true;
+				SDL_ResetHint(SDL_HINT_GPU_DRIVER);
+				ren = SDL_CreateRenderer(win, "gpu");
+			}
+			// A first look, before anything is drawn: the made-up test scene on the renderer's device
+			// and on the CPU, and if the GPU's comes back empty where the CPU's is drawn (vf2-recomp #3:
+			// a GTX 970 drew nothing on Direct3D 12), the renderer made again on Vulkan at once, not
+			// from the next start. (Only that case: the full check, pixel for pixel, comes later as
+			// before.) 1 drawn, 0 empty, -1 not looked at.
+			auto draws_3d = [&](SDL_Renderer *r) -> int {
+				SDL_GPUDevice *gd = r ? SDL_GetGPURendererDevice(r) : nullptr;
+				std::unique_ptr<gpu3d> dev = gd ? gpu3d_create_sdlgpu(gd) : nullptr;
+				if (!dev) return -1;
+				model2_video &v = m.video();
+				int w = 0, h = 0;
+				v.render_size(w, h);
+				if (w <= 0 || h <= 0) return -1;
+				v.bench_make(1500);
+				std::vector<gpu3d_poly> list;
+				v.bench_export(list);
+				gpu3d_rams rams;
+				v.gpu_rams(rams);
+				dev->set_rams(rams);
+				gpu3d_frame f;
+				f.w = w; f.h = h; f.scale = std::max(1, h / 384);
+				if (!dev->submit(list.data(), list.size(), f, -1) || !dev->finish()) return 0;
+				std::vector<uint32_t> gp(size_t(w) * h, 0);
+				if (!dev->read_picture(gp.data(), size_t(w))) return -1;
+				v.bench_cpu(0, 1);
+				const bitmap_rgb32 &c = v.bench_picture();
+				if (c.width() != w || c.height() != h) return -1;
+				long long cpu_drawn = 0, gpu_drawn = 0;
+				for (int y = 0; y < h; y++)
+					for (int x = 0; x < w; x++) { cpu_drawn += (c.pix(y, x) & 0xffffff) != 0; gpu_drawn += (gp[size_t(y) * w + x] & 0xffffff) != 0; }
+				const long long px = (long long)w * h;
+				return cpu_drawn > px / 2 && gpu_drawn < px / 100 ? 0 : 1;
+			};
+			if (ren && !getenv("SDL_GPU_DRIVER") && !getenv("VF2_GPU3D_NO_PROBE") && !(failed_before("direct3d12") && failed_before("vulkan"))) {
+				SDL_GPUDevice *gd = SDL_GetGPURendererDevice(ren);
+				const char *drv = gd ? SDL_GetGPUDeviceDriver(gd) : nullptr;
+				if (drv && !strcmp(drv, "direct3d12") && draws_3d(ren) == 0) {
+					fprintf(stderr, "SDL's gpu renderer: Direct3D 12 draws no 3D here: Vulkan instead\n");
+					if (!failed_before("direct3d12")) { cfg.gpu3d_failed += (cfg.gpu3d_failed.empty() ? "" : " ") + std::string("direct3d12"); cfg_dirty = true; }
+					SDL_DestroyRenderer(ren);
+					SDL_SetHint(SDL_HINT_GPU_DRIVER, "vulkan");
+					ren = SDL_CreateRenderer(win, "gpu");
+					const int vk = ren ? draws_3d(ren) : -1;
+					if (!ren || vk == 0) {   // (no Vulkan, or no 3D on it either: Direct3D 12 for the 2D, the 3D on the CPU)
+						fprintf(stderr, "SDL's gpu renderer: Vulkan %s: Direct3D 12, the 3D on the CPU\n", ren ? "draws no 3D either" : "won't start");
+						if (ren) SDL_DestroyRenderer(ren);
+						if (!failed_before("vulkan")) { cfg.gpu3d_failed += " vulkan"; cfg_dirty = true; }
+						SDL_ResetHint(SDL_HINT_GPU_DRIVER);
+						ren = SDL_CreateRenderer(win, "gpu");
+					} else fprintf(stderr, "SDL's gpu renderer: Vulkan draws the 3D here\n");
+				}
+			}
 			SDL_RemovePath(marker.c_str());
 			if (!ren) fprintf(stderr, "SDL's gpu renderer: %s (SDL's usual renderer, the CPU's 3D)\n", SDL_GetError());
 			else fprintf(stderr, "SDL's gpu renderer started in %.0f ms\n", std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
@@ -1067,11 +1168,14 @@ int main(int argc, char **argv)
 	//   VF2_GPU3D_TEST_DIFF=n  tests: the GPU's picture checked made to differ in n pixels (-1: all)
 	enum { R3D_CPU, R3D_GPU, R3D_AUTO };
 	// SDL_GPU's check of its pictures against the CPU's: how many differing pixels are rounding
-	// (some graphics cards' drivers, NVIDIA's on Direct3D 12, put a handful of pixels a hair off),
-	// the GPU kept: up to GPU_ROUNDING_PX, or 0.01% of the picture if more; when the player chose the
-	// GPU (not Auto), up to 1% (only a picture mostly wrong, a broken GPU, puts the 3D on the CPU)
+	// (some graphics cards' drivers, NVIDIA's on Direct3D 12, put pixels a hair off), the GPU kept.
+	// Judged by how wrong: colours within GPU_ROUNDING_COLOUR anywhere are rounding; beyond that,
+	// up to 1% of the picture's pixels, and up to 5% drawn on one and not the other (edges a hair
+	// apart). When the player chose the GPU (not Auto): 10% and 25%, only a picture mostly wrong
+	// (a GPU drawing nothing, or garbage) going to the CPU.
 	constexpr long long GPU_ROUNDING_PX = 64;
-	constexpr double GPU_ROUNDING_SHARE = 0.0001, GPU_ROUNDING_CHOSEN = 0.01;
+	constexpr int GPU_ROUNDING_COLOUR = 8;
+	constexpr double GPU_WRONG_COLOUR = 0.01, GPU_WRONG_COVER = 0.05, GPU_WRONG_COLOUR_CHOSEN = 0.10, GPU_WRONG_COVER_CHOSEN = 0.25;
 	static const char *R3D_NAMES[] = { "CPU", "GPU", "Auto" };
 	constexpr int G3_TARGETS = 5;   // (see gpu3d_state::tex)
 	struct gpu3d_state {
@@ -1173,6 +1277,16 @@ int main(int argc, char **argv)
 		fprintf(stderr, "the 3D on the GPU: %s: on the CPU from now on\n", why);
 		g3.failed = true; g3.on = false;
 		g3_free();
+#ifdef VF2_GPU3D_SDL
+		// the driver it failed on, kept: the next start tries SDL's other (Direct3D 12, then Vulkan)
+		if (SDL_GPUDevice *d = static_cast<SDL_GPUDevice *>(SDL_GetPointerProperty(SDL_GetRendererProperties(ren), SDL_PROP_RENDERER_GPU_DEVICE_POINTER, nullptr)))
+			if (const char *drv = SDL_GetGPUDeviceDriver(d); drv && (" " + cfg.gpu3d_failed + " ").find(std::string(" ") + drv + " ") == std::string::npos) {
+				cfg.gpu3d_failed += (cfg.gpu3d_failed.empty() ? "" : " ") + std::string(drv);
+				cfg_dirty = true;
+				if (!strcmp(drv, "direct3d12") && cfg.gpu3d_failed.find("vulkan") == std::string::npos)
+					fprintf(stderr, "the 3D on the GPU: the next start tries Vulkan\n");
+			}
+#endif
 	};
 	// the targets, the picture's size (false: none here, the CPU's 3D)
 	auto g3_targets = [&](int w, int h) -> bool {
@@ -1309,6 +1423,7 @@ int main(int argc, char **argv)
 		std::vector<uint32_t> gp(size_t(w) * h);
 		long long cover = 0;   // (of the differing pixels, drawn on one and not the other: an edge's)
 		int most = 0;          // (the largest difference in a colour channel, of those drawn on both)
+		long long big = 0;     // (of those drawn on both, the ones a colour channel is off by more than rounding)
 		auto differ = [&]() -> long long {
 			if (!g3.dev->read_picture(gp.data(), size_t(w))) return -1;
 			const bitmap_rgb32 &c = v.bench_picture();
@@ -1326,7 +1441,10 @@ int main(int argc, char **argv)
 					if (!((r[x] == 0) != (g[x] == 0) || ((r[x] ^ g[x]) & 0xffffff))) continue;
 					n++;
 					if ((r[x] == 0) != (g[x] == 0)) { cover++; continue; }
-					for (int sh = 0; sh < 24; sh += 8) most = std::max(most, std::abs(int((r[x] >> sh) & 255) - int((g[x] >> sh) & 255)));
+					int off = 0;
+					for (int sh = 0; sh < 24; sh += 8) off = std::max(off, std::abs(int((r[x] >> sh) & 255) - int((g[x] >> sh) & 255)));
+					most = std::max(most, off);
+					if (off > GPU_ROUNDING_COLOUR) big++;
 				}
 			}
 			return n;
@@ -1345,16 +1463,21 @@ int main(int argc, char **argv)
 			// A few pixels apart is rounding (a graphics card's driver doing a sum or an edge a hair
 			// differently), not a broken GPU: the GPU's kept. Beyond that the CPU's 3D from now on;
 			// when the player chose the GPU (not Auto), only for a picture that's mostly wrong.
+			// Judged by how wrong, not how many: colours off by a little, or edges a hair apart,
+			// anywhere, are a driver's rounding; only a picture plainly wrong (much of it drawn on one
+			// and not the other, as a GPU drawing nothing; or colours well off) goes to the CPU.
 			const long long px = (long long)w * h;
-			const long long ok = std::max(GPU_ROUNDING_PX, (long long)(px * (g3.mode == R3D_GPU ? GPU_ROUNDING_CHOSEN : GPU_ROUNDING_SHARE)));
-			if (d <= ok) {
-				fprintf(stderr, "the 3D on the GPU: its picture of %s: %lld of %d x %d pixels differ by rounding (%lld at an edge, colours by %d at most; up to %lld kept): keeping the GPU\n",
-						g3.checked_on, d, w, h, cover, most, ok);
+			const bool chosen = g3.mode == R3D_GPU;
+			const long long ok = std::max(GPU_ROUNDING_PX, (long long)(px * (chosen ? GPU_WRONG_COLOUR_CHOSEN : GPU_WRONG_COLOUR)));
+			const long long ok_cover = std::max(GPU_ROUNDING_PX, (long long)(px * (chosen ? GPU_WRONG_COVER_CHOSEN : GPU_WRONG_COVER)));
+			if (big <= ok && cover <= ok_cover) {
+				fprintf(stderr, "the 3D on the GPU: its picture of %s: %lld of %d x %d pixels differ by rounding (%lld at an edge, %lld by more than %d, colours by %d at most; up to %lld and %lld kept): keeping the GPU\n",
+						g3.checked_on, d, w, h, cover, big, GPU_ROUNDING_COLOUR, most, ok_cover, ok);
 				if (game) g3.verify = 0;
 				return true;
 			}
-			fprintf(stderr, "the 3D on the GPU: its picture of %s isn't the CPU's (%lld of %d x %d pixels differ, %lld at an edge, colours by %d at most; over the %lld kept)\n",
-					g3.checked_on, d, w, h, cover, most, ok);
+			fprintf(stderr, "the 3D on the GPU: its picture of %s isn't the CPU's (%lld of %d x %d pixels differ, %lld drawn on one only, %lld by more than %d, colours by %d at most; over the %lld and %lld kept)\n",
+					g3.checked_on, d, w, h, cover, big, GPU_ROUNDING_COLOUR, most, ok_cover, ok);
 			g3_fail("its pictures aren't the CPU's");
 			return false;
 		}
@@ -1935,6 +2058,7 @@ int main(int argc, char **argv)
 				int i = 0;
 				while (i < 2 && ORDER[i] != g3.mode) i++;
 				g3.mode = cfg.renderer3d = ORDER[wrap(i + d, 3)]; cfg_dirty = true;
+				cfg.gpu3d_failed.clear();   // (the player's choice: every GPU driver tried again from the next start)
 				finish_async(false);
 				if (g3.mode != R3D_CPU) g3_start();
 				g3_decide("the player's choice", true);   // (the menu's open: nothing moves)
@@ -2007,7 +2131,7 @@ int main(int argc, char **argv)
 	auto game_page = [&] {
 		menu_page p{ "Game", "", {} };
 		p.items.push_back({ "Play style",
-			"PC skips the boot screen and is always free play. Arcade has the boot screen, coins and credits, like the real cabinet: Start needs a credit, and Coin (5 and 6, or View tapped on a pad) adds one; its coin settings are kept for it. Changing it restarts the game.",
+			"PC skips the boot screen and is always free play. Arcade has the boot screen, coins and credits, like the real cabinet: Start needs a credit, and Coin adds one (5 and 6, or set it in Controls: a key, or a pad button such as View); its coin settings are kept for it. Changing it restarts the game.",
 			[&] { return std::string(cfg.arcade ? "Arcade" : "PC"); },
 			[&](int) {
 				cfg.arcade = !cfg.arcade; g_pc_mode = !cfg.arcade; cfg_dirty = true;
@@ -2101,9 +2225,9 @@ int main(int argc, char **argv)
 	auto keys_page = [&](int p) {
 		menu_page pg{ p ? "Player 2 keyboard" : "Player 1 keyboard", "", {} };
 		for (int a = 0; a < C_COUNT; a++)
-			pg.items.push_back({ CONTROL_NAMES[a], a == C_COIN
-					? "A coin for this player in Arcade mode (a cabinet's coin slot). Select, then press the key to use. Delete clears it."
-					: "Select, then press the key to use. Delete clears it.",
+			pg.items.push_back({ CONTROL_NAMES[a], std::string(a == C_COIN ? "A coin for this player in Arcade mode (a cabinet's coin slot). "
+													: a == C_MENU ? "Opens this menu (as Esc always does): for a cabinet's button. " : "") +
+					"Select, then press the key to use. Delete clears it.",
 				[&, p, a] { return key_name(cfg.ctl[p].key[a]); }, {},
 				[&, p, a] {
 					menu.capture(std::string("Press a key for ") + CONTROL_NAMES[a] + (p ? " (player 2)" : " (player 1)") +
@@ -2130,13 +2254,14 @@ int main(int argc, char **argv)
 	auto pad_buttons_page = [&](int p) {
 		menu_page pg{ p ? "Player 2 pad buttons" : "Player 1 pad buttons", "", {} };
 		for (int a = C_GUARD; a < C_COUNT; a++)
-			pg.items.push_back({ CONTROL_NAMES[a], std::string(a == C_COIN ? "A coin for this player in Arcade mode (a cabinet's coin slot). " : "") +
+			pg.items.push_back({ CONTROL_NAMES[a], std::string(a == C_COIN ? "A coin for this player in Arcade mode (a cabinet's coin slot). "
+												   : a == C_MENU ? "Opens this menu. L3 + R3 and the touchpad click (when it isn't set to something else) always do too, and Esc on a keyboard. " : "") +
 												   "Select, then press the button (or trigger) to use. Y (or Delete) clears it. "
 												   "The d-pad and left stick always move.",
 				[&, p, a] { return player_controls::pad_label(cfg.ctl[p].pad[a]); }, {},
 				[&, p, a] {
 					menu.capture(std::string("Press a pad button for ") + CONTROL_NAMES[a] + (p ? " (player 2)" : " (player 1)") +
-								 ". View or Esc keeps it; Delete clears it.",
+								 (a >= C_COIN ? ". Esc keeps it; Delete clears it." : ". View or Esc keeps it; Delete clears it."),
 						[&, p, a](const SDL_Event &e) {
 							int code = PAD_NONE;
 							if (e.type == SDL_EVENT_KEY_DOWN) {
@@ -2146,7 +2271,8 @@ int main(int argc, char **argv)
 								return true;
 							}
 							if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
-								if (e.gbutton.button == SDL_GAMEPAD_BUTTON_BACK) return true;     // View: keep it
+								// View: keep it (View is for the menu's hotkeys, not moves), unless it's for Coin or Menu
+								if (e.gbutton.button == SDL_GAMEPAD_BUTTON_BACK && a < C_COIN) return true;
 								code = e.gbutton.button;
 							} else if (e.type == SDL_EVENT_GAMEPAD_AXIS_MOTION && e.gaxis.value > 16000 &&
 									   (e.gaxis.axis == SDL_GAMEPAD_AXIS_LEFT_TRIGGER || e.gaxis.axis == SDL_GAMEPAD_AXIS_RIGHT_TRIGGER))
@@ -2166,7 +2292,7 @@ int main(int argc, char **argv)
 		pg.items.push_back({ "Pad", "Which controller this player uses: any free one, a particular one, or none.",
 							 [&, p] { return pad_name(p); }, [&, p](int d) { cycle_pad(p, d); } });
 		pg.items.push_back({ "Keyboard", "Change this player's keys.", {}, {}, [&, p] { menu.push(keys_page(p)); } });
-		pg.items.push_back({ "Pad buttons", "Change which buttons guard, punch, kick, do the combinations and start.",
+		pg.items.push_back({ "Pad buttons", "Change which buttons guard, punch, kick, do the combinations, start, add a coin and open the menu.",
 							 {}, {}, [&, p] { menu.push(pad_buttons_page(p)); } });
 		pg.items.push_back({ "Reset to defaults", "Put this player's keys and buttons back as they were.", {}, {},
 							 [&, p] {
@@ -2444,6 +2570,7 @@ int main(int argc, char **argv)
 			pstate[0].back_was = pstate[1].back_was = true;
 			pstate[0].back_combo = pstate[1].back_combo = true;
 			pstate[0].start_was = pstate[1].start_was = true;
+			for (pad_state &s : pstate) s.menu_was = s.touch_was = s.sticks_was = true;
 			restart_clock();
 		}
 		const bool stopped = paused || menu.is_open();

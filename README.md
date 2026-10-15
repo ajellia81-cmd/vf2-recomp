@@ -128,8 +128,9 @@ Change them in the menu (<kbd>Esc</kbd>, or View / Select on a pad).
 | <kbd>F12</kbd> | Screenshot |
 
 Gamepad (Xbox layout): d-pad or stick to move, X guard, A punch, B kick, Y guard + punch (throws), RB punch + kick,
-LB guard + kick, RT all three, Start to start. View (tap) opens the menu; View + LB / RB change the render scale /
-picture shape.
+LB guard + kick, RT all three, Start to start. View (tap), L3 + R3 or the touchpad click opens the menu (Menu can be
+moved in Controls); View + LB / RB change the render scale / picture shape. In Arcade mode, set Coin in Controls (View
+works) for a coin button.
 
 ## How it works
 
@@ -200,6 +201,12 @@ Matthew Daniels), the System 24 tile chip (Olivier Galibert), the SCSP and its D
 polygon scan converter (Ville Linde, Aaron Giles) and more (`third_party/mame/README.md` lists every file and its
 authors), all BSD-3-Clause. Also RmlUi (MIT), stb_image (Sean Barrett, public domain / MIT), SDL 3 (zlib),
 FreeType (FreeType License), zlib, and the Barlow Condensed font (SIL Open Font License).
+
+Thanks to everyone who tested and reported: [duartepedro03](https://github.com/duartepedro03) and
+[MagitekArmor](https://github.com/MagitekArmor) (performance and the GPU renderer on Windows),
+[alex2005jp](https://github.com/alex2005jp) (older graphics cards), [darethejackal](https://github.com/darethejackal)
+(Steam Deck), [vmicka72](https://github.com/vmicka72), [svera](https://github.com/svera) and
+[terryarcade](https://github.com/terryarcade).
 
 Virtua Fighter 2 is SEGA's. This project is not affiliated with or endorsed by SEGA.
 
