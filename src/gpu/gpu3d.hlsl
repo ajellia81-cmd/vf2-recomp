@@ -18,6 +18,15 @@
 // src/gpu/gpu3d_shaders.h. The resources follow SDL_GPU's layout for compute: read-only storage
 // buffers t0.. in space 0 (SPIR-V set 0), read-write storage textures then buffers u0.. in space 1
 // (set 1), uniforms b0 in space 2 (set 2).
+//
+// Every buffer is a byte-address buffer (ByteAddressBuffer, loads and stores by byte offset), not a
+// structured buffer: SDL_GPU's Direct3D 12 backend binds storage buffers as raw views (R32_TYPELESS,
+// D3D12_BUFFER_*_FLAG_RAW), and a raw view in a structured buffer's slot is undefined there. NVIDIA's
+// recent drivers read it anyway; AMD's (a Radeon 780M) and older NVIDIA (a GTX 970) drew nothing
+// (vf2-recomp #3, #8). Vulkan has no such distinction (SPIR-V's storage buffers are the same either way).
+#define LD(b, i) (b).Load((i) * 4u)                         // the i-th 32-bit word
+#define LDF(b, i) asfloat((b).Load((i) * 4u))
+#define ST(b, i, v) (b).Store((i) * 4u, (v))
 
 // ---- the CPU's arithmetic ----
 // a / b, correctly rounded (round to nearest even), denormals and the specials as IEEE has them
@@ -106,33 +115,34 @@ struct rowrec { int sx; int stop; float d0; float d1; float d2; };
 #define CK 16   // the parameters kept every CK pixels drawn
 
 #if defined(K_SPANS) || defined(K_SHADE)
-StructuredBuffer<pinfo> polys : register(t0, space0);
+ByteAddressBuffer polys : register(t0, space0);
+pinfo poly_at(uint i) { return polys.Load<pinfo>(i * sizeof(pinfo)); }
 #endif
 #if defined(K_SPANS)
-StructuredBuffer<pverts> verts : register(t1, space0);
-StructuredBuffer<uint> jobpoly : register(t2, space0);
-StructuredBuffer<uint> jobbase : register(t3, space0);
-StructuredBuffer<uint> tex0 : register(t4, space0);
-StructuredBuffer<uint> tex1 : register(t5, space0);
-RWStructuredBuffer<rowrec> rows : register(u0, space1);
-RWStructuredBuffer<float> ck : register(u1, space1);
-RWStructuredBuffer<uint> owner : register(u2, space1);
+ByteAddressBuffer verts : register(t1, space0);
+ByteAddressBuffer jobpoly : register(t2, space0);
+ByteAddressBuffer jobbase : register(t3, space0);
+ByteAddressBuffer tex0 : register(t4, space0);
+ByteAddressBuffer tex1 : register(t5, space0);
+RWByteAddressBuffer rows : register(u0, space1);
+RWByteAddressBuffer ck : register(u1, space1);
+RWByteAddressBuffer owner : register(u2, space1);
 cbuffer spans_k : register(b0, space2) { uint k_jobs; uint k_W; uint k_H; uint k_total; uint4 k_log2[8]; };
 #define HAVE_TEX 1
 #endif
 #if defined(K_SHADE)
-StructuredBuffer<rowrec> rows : register(t1, space0);
-StructuredBuffer<float> ck : register(t2, space0);
-StructuredBuffer<uint> owner : register(t3, space0);
-StructuredBuffer<uint> tex0 : register(t4, space0);
-StructuredBuffer<uint> tex1 : register(t5, space0);
+ByteAddressBuffer rows : register(t1, space0);
+ByteAddressBuffer ck : register(t2, space0);
+ByteAddressBuffer owner : register(t3, space0);
+ByteAddressBuffer tex0 : register(t4, space0);
+ByteAddressBuffer tex1 : register(t5, space0);
 // the luma RAM (bytes, four a word), colorxlat (16 bits, two a word) and gamma (bytes), one after
 // another (SDL_GPU takes 8 read-only buffers at most)
-StructuredBuffer<uint> luts : register(t6, space0);
+ByteAddressBuffer luts : register(t6, space0);
 #define LUMA_AT 0u
 #define XLAT_AT 0x2000u
 #define GAMMA_AT 0x5000u
-RWStructuredBuffer<uint> outbuf : register(u0, space1);
+RWByteAddressBuffer outbuf : register(u0, space1);
 cbuffer shade_k : register(b0, space2) { uint k_W; uint k_H; uint k_pad0; uint k_pad1; uint4 k_log2[8]; };
 #define HAVE_TEX 1
 #endif
@@ -249,7 +259,7 @@ int fast_log2(float value)
 	return (ex << 8) | int(log2_table(ival & 127u));
 }
 
-uint sheet_word(uint s, uint i) { return s ? tex1[i] : tex0[i]; }
+uint sheet_word(uint s, uint i) { return s ? LD(tex1, i) : LD(tex0, i); }
 
 uint fetch_bilinear_texel(pinfo o, uint s0, uint s1, bool translucent, int miplevel, int u, int v)
 {
@@ -348,13 +358,13 @@ uint texel_at(pinfo o, float3 q)
 
 // ---- the owners cleared (none: 0xffffffff) ----
 #ifdef K_CLEAR
-RWStructuredBuffer<uint> owner : register(u0, space1);
+RWByteAddressBuffer owner : register(u0, space1);
 cbuffer clear_k : register(b0, space2) { uint k_n; uint k_value; uint k_pad0; uint k_pad1; };
 [numthreads(64, 1, 1)]
 void main(uint3 t : SV_DispatchThreadID)
 {
 	const uint i = t.x + t.y * 65535u * 64u;
-	if (i < k_n) owner[i] = k_value;
+	if (i < k_n) ST(owner, i, k_value);
 }
 #endif
 
@@ -366,10 +376,10 @@ void main(uint3 tid : SV_DispatchThreadID)
 	const uint t = tid.x + tid.y * 65535u * 64u;
 	if (t >= k_total) return;
 	uint lo = 0, hi = k_jobs - 1;
-	while (lo < hi) { const uint mid = (lo + hi + 1) >> 1; if (jobbase[mid] <= t) lo = mid; else hi = mid - 1; }
-	const uint idx = jobpoly[lo];
-	const pinfo o = polys[idx];
-	const pverts pv = verts[idx];
+	while (lo < hi) { const uint mid = (lo + hi + 1) >> 1; if (LD(jobbase, mid) <= t) lo = mid; else hi = mid - 1; }
+	const uint idx = LD(jobpoly, lo);
+	const pinfo o = poly_at(idx);
+	const pverts pv = verts.Load<pverts>(idx * sizeof(pverts));
 	const uint r = t - o.rowbase;
 	const int y = o.y0 + int(r);
 	int sx, stop;
@@ -383,18 +393,18 @@ void main(uint3 tid : SV_DispatchThreadID)
 	}
 	rowrec rr;
 	rr.sx = sx; rr.stop = stop; rr.d0 = d.x; rr.d1 = d.y; rr.d2 = d.z;
-	rows[r + o.rowbase] = rr;
+	rows.Store<rowrec>((r + o.rowbase) * sizeof(rowrec), rr);
 	const bool tex = (o.flags & 2u) != 0u, see_through = (o.flags & 6u) == 6u;
 	const uint orow = uint(y) * k_W;
 	uint n = 0;
 	for (int x = sx; x < stop; x += step, n++) {
 		if (tex && (n % CK) == 0u && n / CK < o.ckstride) {
 			const uint at = (o.ckbase + r * o.ckstride + n / CK) * 3u;
-			ck[at] = q.x; ck[at + 1] = q.y; ck[at + 2] = q.z;
+			ST(ck, at, asuint(q.x)); ST(ck, at + 1u, asuint(q.y)); ST(ck, at + 2u, asuint(q.z));
 		}
 		bool drawn = true;
 		if (see_through && texel_at(o, q) < 0x00400000u) drawn = false;   // (a translucent texel under half: not drawn)
-		if (drawn) InterlockedMin(owner[orow + uint(x)], idx);
+		if (drawn) owner.InterlockedMin((orow + uint(x)) * 4u, idx);
 		q += d;
 	}
 }
@@ -408,33 +418,33 @@ uint texel_colour(pinfo o, uint tx)
 {
 	if (o.flags & 4u) tx &= 0xffu;
 	const uint li = (o.lumabase + (tx >> 1)) & 0x7fffu;
-	const uint luma = min((byte_at(luts[LUMA_AT + (li >> 2)], li) * o.luma) / 256u, 0x3fu);
+	const uint luma = min((byte_at(LD(luts, LUMA_AT + (li >> 2)), li) * o.luma) / 256u, 0x3fu);
 	const uint ir = 0x0000u + (((o.pal >> 0) & 0x1fu) << 8) + luma;
 	const uint ig = 0x2000u + (((o.pal >> 5) & 0x1fu) << 8) + luma;
 	const uint ib = 0x4000u + (((o.pal >> 10) & 0x1fu) << 8) + luma;
-	const uint r = (luts[XLAT_AT + (ir >> 1)] >> ((ir & 1u) * 16u)) & 0xffu;
-	const uint g = (luts[XLAT_AT + (ig >> 1)] >> ((ig & 1u) * 16u)) & 0xffu;
-	const uint b = (luts[XLAT_AT + (ib >> 1)] >> ((ib & 1u) * 16u)) & 0xffu;
-	return 0xff000000u | (byte_at(luts[GAMMA_AT + (r >> 2)], r) << 16) | (byte_at(luts[GAMMA_AT + (g >> 2)], g) << 8) | byte_at(luts[GAMMA_AT + (b >> 2)], b);
+	const uint r = (LD(luts, XLAT_AT + (ir >> 1)) >> ((ir & 1u) * 16u)) & 0xffu;
+	const uint g = (LD(luts, XLAT_AT + (ig >> 1)) >> ((ig & 1u) * 16u)) & 0xffu;
+	const uint b = (LD(luts, XLAT_AT + (ib >> 1)) >> ((ib & 1u) * 16u)) & 0xffu;
+	return 0xff000000u | (byte_at(LD(luts, GAMMA_AT + (r >> 2)), r) << 16) | (byte_at(LD(luts, GAMMA_AT + (g >> 2)), g) << 8) | byte_at(LD(luts, GAMMA_AT + (b >> 2)), b);
 }
 [numthreads(8, 8, 1)]
 void main(uint3 g : SV_DispatchThreadID)
 {
 	if (g.x >= k_W || g.y >= k_H) return;
 	const uint at = g.y * k_W + g.x;
-	const uint idx = owner[at];
-	if (idx == 0xffffffffu) { outbuf[at] = 0u; return; }
-	const pinfo o = polys[idx];
-	if (!(o.flags & 2u)) { outbuf[at] = o.colour; return; }
+	const uint idx = LD(owner, at);
+	if (idx == 0xffffffffu) { ST(outbuf, at, 0u); return; }
+	const pinfo o = poly_at(idx);
+	if (!(o.flags & 2u)) { ST(outbuf, at, o.colour); return; }
 	const uint r = uint(int(g.y) - o.y0);
-	const rowrec rr = rows[o.rowbase + r];
+	const rowrec rr = rows.Load<rowrec>((o.rowbase + r) * sizeof(rowrec));
 	const uint n = uint(int(g.x) - rr.sx) >> ((o.flags & 1u) ? 1u : 0u);
 	const uint j = min(n / CK, o.ckstride - 1u);
 	const uint ca = (o.ckbase + r * o.ckstride + j) * 3u;
-	precise float3 q = float3(ck[ca], ck[ca + 1], ck[ca + 2]);
+	precise float3 q = float3(LDF(ck, ca), LDF(ck, ca + 1u), LDF(ck, ca + 2u));
 	const float3 d = float3(rr.d0, rr.d1, rr.d2);
 	for (uint i = j * CK; i < n; i++) q += d;
-	outbuf[at] = texel_colour(o, texel_at(o, q));
+	ST(outbuf, at, texel_colour(o, texel_at(o, q)));
 }
 #endif
 
@@ -445,7 +455,7 @@ float4 unpack(uint c) { return float4(float((c >> 16) & 255u), float((c >> 8) & 
 #endif
 
 #ifdef K_OUT
-StructuredBuffer<uint> src : register(t0, space0);
+ByteAddressBuffer src : register(t0, space0);
 cbuffer out_k : register(b0, space2) { uint k_w; uint k_h; uint k_ss; uint k_pad0; };
 // as it is, or each ss x ss block averaged (premultiplied: what isn't drawn adds nothing, its share drawn the alpha)
 [numthreads(8, 8, 1)]
@@ -453,11 +463,11 @@ void main(uint3 g : SV_DispatchThreadID)
 {
 	if (g.x >= k_w || g.y >= k_h) return;
 	const uint W = k_w * k_ss;
-	if (k_ss == 1u) { dst[g.xy] = unpack(src[g.y * W + g.x]); return; }
+	if (k_ss == 1u) { dst[g.xy] = unpack(LD(src, g.y * W + g.x)); return; }
 	uint r = 0, gg = 0, b = 0, a = 0;
 	for (uint j = 0; j < k_ss; j++)
 		for (uint i = 0; i < k_ss; i++) {
-			const uint c = src[(g.y * k_ss + j) * W + g.x * k_ss + i];
+			const uint c = LD(src, (g.y * k_ss + j) * W + g.x * k_ss + i);
 			if (!c) continue;
 			r += (c >> 16) & 255u; gg += (c >> 8) & 255u; b += c & 255u; a += 255u;
 		}
@@ -469,9 +479,9 @@ void main(uint3 g : SV_DispatchThreadID)
 
 // Low: model2a::edge_smooth on the 3D at its scale, the picture beneath from the 2D (below_3d)
 #ifdef K_EDGE
-StructuredBuffer<uint> src : register(t0, space0);
-StructuredBuffer<uint> bd : register(t1, space0);
-StructuredBuffer<uint> mid : register(t2, space0);
+ByteAddressBuffer src : register(t0, space0);
+ByteAddressBuffer bd : register(t1, space0);
+ByteAddressBuffer mid : register(t2, space0);
 cbuffer edge_k : register(b0, space2) { uint k_W; uint k_H; uint k_s; uint k_w; uint k_padpx; int k_bdx; int k_bdy; uint k_filter; };
 // std::lround for x >= 0 (half away from zero)
 int lround_pos(float x)
@@ -484,7 +494,7 @@ uint below_3d(int X, int Y)
 {
 	const int s = int(k_s), w = int(k_w), W = w * s, H = 384 * s, P = int(k_padpx), pw = w + 2 * P;
 	const int x = X / s, y = Y / s;
-	const uint m = mid[y * w + x];
+	const uint m = LD(mid, y * w + x);
 	if (m) return m;
 	if (k_filter) {
 		precise const float u = fdiv(float(X + k_bdx) + 0.5f, float(s)) - 0.5f;
@@ -492,7 +502,7 @@ uint below_3d(int X, int Y)
 		const int ua = clamp(ftoi(floor(u)), 0, w - 1), va = clamp(ftoi(floor(v)), 0, 383);
 		const int ub = clamp(ftoi(floor(u)) + 1, 0, w - 1), vb = clamp(ftoi(floor(v)) + 1, 0, 383);
 		precise const float fu = u - floor(u), fv = v - floor(v);
-		const uint c00 = bd[(va + P) * pw + ua + P], c10 = bd[(va + P) * pw + ub + P], c01 = bd[(vb + P) * pw + ua + P], c11 = bd[(vb + P) * pw + ub + P];
+		const uint c00 = LD(bd, (va + P) * pw + ua + P), c10 = LD(bd, (va + P) * pw + ub + P), c01 = LD(bd, (vb + P) * pw + ua + P), c11 = LD(bd, (vb + P) * pw + ub + P);
 		uint o = 0xff000000u;
 		for (int sh = 0; sh < 24; sh += 8) {
 			precise const float t = float((c00 >> sh) & 255u) * (1 - fu) + float((c10 >> sh) & 255u) * fu;
@@ -502,8 +512,8 @@ uint below_3d(int X, int Y)
 		}
 		return o;
 	}
-	if (k_bdx || k_bdy) return bd[(clamp(Y + k_bdy, 0, H - 1) / s + P) * pw + clamp(X + k_bdx, 0, W - 1) / s + P];
-	return bd[(y + P) * pw + x + P];
+	if (k_bdx || k_bdy) return LD(bd, (clamp(Y + k_bdy, 0, H - 1) / s + P) * pw + clamp(X + k_bdx, 0, W - 1) / s + P);
+	return LD(bd, (y + P) * pw + x + P);
 }
 int luma_of(uint c) { return int((c >> 16) & 0xffu) * 77 + int((c >> 8) & 0xffu) * 150 + int(c & 0xffu) * 29; }
 [numthreads(8, 8, 1)]
@@ -511,9 +521,9 @@ void main(uint3 g : SV_DispatchThreadID)
 {
 	if (g.x >= k_W || g.y >= k_H) return;
 	const int X = int(g.x), Y = int(g.y), W = int(k_W);
-	uint outc = src[Y * W + X];
+	uint outc = LD(src, Y * W + X);
 	if (Y >= 1 && Y < int(k_H) - 1 && X >= 1 && X < W - 1) {
-		uint c3[5] = { src[Y * W + X], src[(Y - 1) * W + X], src[(Y + 1) * W + X], src[Y * W + X - 1], src[Y * W + X + 1] };
+		uint c3[5] = { LD(src, Y * W + X), LD(src, (Y - 1) * W + X), LD(src, (Y + 1) * W + X), LD(src, Y * W + X - 1), LD(src, Y * W + X + 1) };
 		int l[5];
 		bool any = false, all = true;
 		[unroll] for (int i = 0; i < 5; i++) { l[i] = c3[i] ? luma_of(c3[i] & 0xffffffu) : -1; any = any || c3[i] != 0u; all = all && c3[i] != 0u; }
