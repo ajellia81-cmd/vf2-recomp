@@ -57,7 +57,48 @@ screen's refresh rate.
 | The 3D drawn on the GPU (Display > 3D renderer: Auto, GPU or CPU) | Working on macOS (Metal), Windows (Direct3D 12 or Vulkan) and Linux / Steam Deck (Vulkan): the same picture as the CPU's, checked when the game starts; Auto uses the GPU unless it's clearly slower, and any difference or error falls back to the CPU |
 | Stereo reverb (the sound board's DSP) | Working: wide stereo, as on the cabinet (fixed in v0.1.2) |
 | Portable mode, your own ROM folder | Working |
+| Secret characters (Menu > Cheats): Dural, MUE and KOJAC | Working |
 | Online play | Not yet |
+
+## Secret characters
+
+Menu > Cheats > **Secret character** puts a fighter the arcade never let you pick in Akira's spot on the player
+select, for either player: **Dural**, the final boss, or **MUE** and **KOJAC**, two unused fighters still in the
+game's code. Changing it restarts the game.
+
+**How it works.** VF2's fighters are numbered in its code: Akira 0 to Shun 8, Dural 9, Lion 10, and, after him,
+MUE 11 and KOJAC 12, which the arcade's select never offers. The player select turns a slot into a fighter from a
+table (Akira's slot is fighter 0); the reads that set the fighter now take Akira's slot from a copy of that table
+with the secret character in it, while the reads that draw the name and profile keep the original. So the game
+loads the secret character exactly as it loads anyone else: their own model, moves, voice and health bar name,
+for either player, in any mode.
+
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/8ce2e641-575f-49da-bbfd-f3351824860f" alt="The secret characters in action at 2x: Dural, MUE and KOJAC on five stages, and Dural's portrait on the player select" width="800">
+</p>
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/a78b7e81-5c26-47ff-8c63-8485b6c6b77b" alt="The cast's select portraits, and Dural, MUE and KOJAC below" width="800">
+</p>
+
+| Character | Select screen | Health bar | Notes |
+| --- | --- | --- | --- |
+| Dural | Her own portrait (the game's own); Akira's name and profile | DURAL | Complete: the final boss's model and moves, the chrome body, a darker one on player 2's side |
+| MUE | Lion's portrait; Akira's name and profile | AKIRA | Lion's body in a black vest, with Akira's moves and voice but Lion's stance and walk |
+| KOJAC | Lion's portrait; Akira's name and profile | JACKY | Lion's body in a white vest, with Akira's moves and voice but Lion's stance and walk |
+
+They take Akira's place, so Akira can't be picked while one is on; the computer's own fighters, Dural at the end of
+arcade mode included, are unchanged.
+
+### Who they are
+
+- **Dural**: the final boss of Virtua Fighter and Virtua Fighter 2, a silver cyborg who fights with a mix of the
+  cast's moves. The arcade never let you choose her outright; the select's table even has an eleventh, hidden slot
+  for her, and the game carries a select portrait for her too.
+- **MUE and KOJAC**: two fighters numbered after Lion, named MUE and KOJAC in the game's fighter lists (KOJACKY in
+  its test menu). [The Cutting Room Floor](https://tcrf.net/Virtua_Fighter_2_(Arcade)) found them in the game's
+  debug mode: Lion's first costume with a different vest (black for MUE, white for KOJAC), Akira's moves and voice,
+  and Lion's idle and walking animations. They may have been debug test characters, or placeholders for fighters
+  that were planned and never made.
 
 ## Play
 
@@ -124,7 +165,7 @@ Change them in the menu (<kbd>Esc</kbd>, or View / Select on a pad).
 | <kbd>I</kbd> <kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd> | Player 2: move |
 | <kbd>B</kbd> <kbd>N</kbd> <kbd>M</kbd> | Player 2: guard, punch, kick |
 | <kbd>2</kbd> | Player 2: start |
-| <kbd>Esc</kbd> | Menu: display (render scale, picture shape, antialiasing, 3D renderer...), sound, game, arcade settings, controls, quit |
+| <kbd>Esc</kbd> | Menu: display (render scale, picture shape, antialiasing, 3D renderer...), sound, game, arcade settings, controls, cheats, quit |
 | <kbd>P</kbd> | Pause |
 | <kbd>F3</kbd> | Reset |
 | <kbd>F5</kbd> / <kbd>F6</kbd> | Render scale / picture shape |

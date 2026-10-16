@@ -282,6 +282,12 @@ public:
 	// the frames after it are no longer MAME's. False if the program isn't the one known. Before
 	// the boot reaches it (frame 85).
 	bool shorten_warning();
+	// Secret characters: the player select's Akira (either player's) is the fighter with this
+	// number instead: 9 Dural, 11 MUE and 12 KOJAC (Lion's body in Akira's moves, from the debug
+	// menu), 0 Akira himself. The select shows the fighter's portrait with Akira's name and
+	// profile. Takes effect as a cursor next moves onto him: set before the game starts (the
+	// menu restarts it). False for another number, or if the program isn't the one known.
+	bool set_secret_character(int fighter);
 
 	// Milestones (TGP upload, IRQs, first scheduler dispatch...) as they happen, to stderr.
 	std::function<void(const std::string &)> on_milestone;

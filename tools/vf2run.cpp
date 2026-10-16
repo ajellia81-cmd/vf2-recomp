@@ -45,6 +45,8 @@
 //                        when a hit takes the last of it; the round ends as at any KO. With
 //                        tools/scripts/start_game.txt, --ko 2@1600 wins a 1P game to the ending and the
 //                        name entry, --ko 1@1600 loses it to the continue and game over
+//     --secret N         the player select's Akira is fighter N (model2a::set_secret_character)
+//     --poke A=V@a[-b]   write byte V at address A (hex) at the end of every frame from a (to b)
 //     --sound            run the sound board (68000 and SCSP); without it the 68000 is held, as
 //                        in tools/mame_snap.sh's reference runs
 //     --wav file         the sound as heard (16-bit stereo, 44.1 kHz; implies --sound)
@@ -129,6 +131,9 @@ int main(int argc, char **argv)
 	float level = 1;
 	struct knockout { int player; uint64_t from, to; };
 	std::vector<knockout> knockouts;
+	struct poke { u32 addr; u8 value; uint64_t from, to; };
+	std::vector<poke> pokes;
+	int secret = -1;
 	for (int i = 3; i < argc; i++) {
 		std::string a = argv[i];
 		auto next = [&]() -> const char * { if (i + 1 >= argc) { fprintf(stderr, "%s needs a value\n", a.c_str()); exit(2); } return argv[++i]; };
@@ -174,6 +179,19 @@ int main(int argc, char **argv)
 			if (*e || (k.player != 1 && k.player != 2)) { fprintf(stderr, "--ko: 1 or 2, then @frame or @a-b\n"); return 2; }
 			knockouts.push_back(k);
 		}
+		else if (a == "--poke") {
+			const char *v = next();
+			char *e;
+			poke k{ u32(strtoul(v, &e, 16)), 0, 0, UINT64_MAX };
+			if (*e == '=') k.value = u8(strtoul(e + 1, &e, 0));
+			if (*e == '@') {
+				k.from = strtoull(e + 1, &e, 10);
+				k.to = *e == '-' ? strtoull(e + 1, &e, 10) : k.from;
+			}
+			if (*e) { fprintf(stderr, "--poke: A=V@a[-b]\n"); return 2; }
+			pokes.push_back(k);
+		}
+		else if (a == "--secret") secret = atoi(next());
 		else if (a == "--free-play") free_play = true;
 		else if (a == "--version") version = atoi(next());
 		else if (a == "--watch") watch_milestones = true;
@@ -297,6 +315,7 @@ int main(int argc, char **argv)
 	m.set_render_scale(scale);
 	m.set_aspect(aspect);
 	if (culling >= 0 && !m.set_scenery_culling(culling)) fprintf(stderr, "--culling: not the program known\n");
+	if (secret >= 0 && !m.set_secret_character(secret)) fprintf(stderr, "--secret: not the program known\n");
 	m.set_backdrop_filter(backdrop_filter);
 	if (!backgrounds.empty() && !load_backgrounds(m, backgrounds)) fprintf(stderr, "--backgrounds: nothing in %s\n", backgrounds.c_str());
 	m.set_volumes(music / 100.0f, effects / 100.0f);
@@ -458,6 +477,8 @@ int main(int argc, char **argv)
 			regs += string_format(" fp %08x\n", c.reg(31));
 			save("regs.txt", regs.data(), regs.size());
 		}
+		for (const poke &k : pokes)
+			if (f >= k.from && f <= k.to) m.write_byte(k.addr, k.value);
 		for (const knockout &k : knockouts)   // (after the dumps: the game sees it in frame f + 1)
 			if (f >= k.from && f <= k.to && m.workram()[0x2b] == 9 && m.workram()[0x31] == 9) {
 				const u32 block = k.player == 1 ? 0x510980 : 0x512980;

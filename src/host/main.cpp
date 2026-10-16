@@ -451,6 +451,7 @@ struct settings
 {
 	int scale = 0, aspect = 0, volume = 100, music = 50, effects = 100, aa = 1, filter = 0, ring = 0;
 	int pipelined_at = 0;
+	int secret = 0;   // Cheats > Secret character: the fighter in Akira's place (model2a::set_secret_character), 0 none
 	// settings.ini's version: 2 from v0.1.2 (none before). Its upgrades, once, as it's read:
 	//   2: the old default music volume, 20, to the new one, 50 (the music's stereo reverb mended:
 	//      at 20 it's now too quiet); a 20 chosen later is kept (the file then says version 2)
@@ -504,6 +505,8 @@ struct settings
 		if (auto it = kv.find("gpu_3d_failed"); it != kv.end()) gpu3d_failed = it->second;
 		if (auto it = kv.find("roms_folder"); it != kv.end()) roms_folder = it->second;
 		num("arcade_coins", arcade_coin, -2, 0x18);
+		num("secret_character", secret, 0, 12);
+		if (secret != 9 && secret != 11 && secret != 12) secret = 0;
 		if (ring && (ring < 1300 || ring % 100)) ring = 0;   // 0: by difficulty
 		flag("fullscreen", fullscreen);
 		flag("frame_timings", timings);
@@ -534,6 +537,7 @@ struct settings
 				"background_filter = %d\nmusic_volume = %d\neffects_volume = %d\nantialiasing = %d\nshow_fps = %d\nscreen_filter = %d\nring_size = %d\nsmooth_motion = %d\npipelined_at = %d\narcade_coins = %d\n", scale, aspect,
 				int(fullscreen), int(timings), volume, int(arcade), int(smooth_bg), music, effects, aa, int(show_fps), filter, ring, int(smooth), pipelined_at, arcade_coin);
 		fprintf(f, "renderer_3d = %d\ngpu_quality = %d\nauto_3d = %s\n", renderer3d, gpu_quality, auto3d.c_str());
+		fprintf(f, "secret_character = %d\n", secret);
 		if (!gpu3d_failed.empty()) fprintf(f, "gpu_3d_failed = %s\n", gpu3d_failed.c_str());
 		if (!roms_folder.empty()) fprintf(f, "roms_folder = %s\n", roms_folder.c_str());
 		for (int p = 0; p < 2; p++) ctl[p].save(f, p);
@@ -829,6 +833,7 @@ int main(int argc, char **argv)
 			if (m.assignment(model2a::game_assignment::version) == 0) m.set_assignment(model2a::game_assignment::version, 1);
 		}
 		m.set_ring_width(cfg.ring);
+		if (!m.set_secret_character(cfg.secret)) fprintf(stderr, "secret character: not the program known\n");
 		// The PC way plays free: the arcade's coin setting is kept (settings.ini's arcade_coins) before
 		// FREE PLAY replaces it, and the arcade way gives it back. Free play the PC way set before it
 		// was kept (earlier builds) gives back the factory's (a coin a credit); FREE PLAY the player
@@ -1998,7 +2003,7 @@ int main(int argc, char **argv)
 	// Reset (the menu, F3): the menu closes, a paused game unpauses, and the screen goes black at
 	// once while the boot runs unseen, not the last picture held.
 	// the arcade settings as their page opened (and the ring): see arcade_page
-	std::optional<std::array<int, 8>> assign_before;
+	std::optional<std::array<int, 9>> assign_before;
 	auto reset_game = [&] {
 		finish_async(false);
 		shown_pic.reset();
@@ -2151,11 +2156,12 @@ int main(int argc, char **argv)
 	// starts, so closing the menu after changing one restarts it (only if something is different) ----
 	using ga = model2a::game_assignment;
 	constexpr int N_ASSIGN = 7;
-	static_assert(std::tuple_size_v<decltype(assign_before)::value_type> == N_ASSIGN + 1);
+	static_assert(std::tuple_size_v<decltype(assign_before)::value_type> == N_ASSIGN + 2);
 	auto assignments_now = [&] {
-		std::array<int, N_ASSIGN + 1> v;
+		std::array<int, N_ASSIGN + 2> v;
 		for (int i = 0; i < N_ASSIGN; i++) v[i] = m.assignment(ga(i));
 		v[N_ASSIGN] = cfg.ring;
+		v[N_ASSIGN + 1] = cfg.secret;   // (Cheats: the select sets the fighter as it opens, so it restarts too)
 		return v;
 	};
 	auto arcade_page = [&] {
@@ -2191,6 +2197,24 @@ int main(int argc, char **argv)
 		p.items.push_back({ "Service menu",
 			"The arcade's own test menu: input and sound tests, coin settings and bookkeeping. Down moves, Start selects (or 9 and F2 on a keyboard). Choose EXIT to come back.",
 			{}, {}, [&] { menu.close(); paused = false; g_test_pending = true; } });
+		p.items.push_back(back_item());
+		return p;
+	};
+	// ---- cheats: the secret characters (in Akira's place) ----
+	auto cheats_page = [&] {
+		if (!assign_before) assign_before = assignments_now();
+		menu_page p{ "Cheats: a change restarts the game when the menu closes", "", {} };
+		static const int SECRET[] = { 0, 9, 11, 12 };
+		static const char *SECRET_NAMES[] = { "Off", "Dural", "MUE", "KOJAC" };
+		p.items.push_back({ "Secret character",
+			"Puts a fighter the arcade never let you pick in Akira's spot on the player select, for either player: Dural, the final boss, or MUE and KOJAC, two unused fighters left in the game (Lion's body with Akira's moves, from its debug menu). The select shows their portrait with Akira's name and profile.",
+			[&] { return std::string(SECRET_NAMES[std::find(std::begin(SECRET), std::end(SECRET), cfg.secret) - std::begin(SECRET)]); },
+			[&](int d) {
+				const int i = int(std::find(std::begin(SECRET), std::end(SECRET), cfg.secret) - std::begin(SECRET));
+				const int n = int(std::size(SECRET));
+				cfg.secret = SECRET[(i + d + n) % n];
+				cfg_dirty = true;   // (applied as the game restarts: boot)
+			} });
 		p.items.push_back(back_item());
 		return p;
 	};
@@ -2342,6 +2366,7 @@ int main(int argc, char **argv)
 		p.items.push_back({ "Arcade settings", "Difficulty, ring size, rounds, continues and the service menu. Changing them restarts the game.", {}, {},
 							[&] { menu.push(arcade_page()); } });
 		p.items.push_back({ "Controls", "Each player's controller, keys and buttons.", {}, {}, [&] { menu.push(controls_page()); } });
+		p.items.push_back({ "Cheats", "Play as Dural, or as MUE or KOJAC, unused fighters left in the game. Changing it restarts the game.", {}, {}, [&] { menu.push(cheats_page()); } });
 		p.items.push_back({ "Quit", "Saves and closes the game.", {}, {}, [&] { running = false; } });
 		return p;
 	};

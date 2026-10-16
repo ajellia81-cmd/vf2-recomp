@@ -467,6 +467,39 @@ bool model2a::shorten_warning()
 	return patch_program(0xa950, mov_1_r15, 4, 0xa834, 0xa9a4 - 0xa834, 0x4bbdbdf6);
 }
 
+// The player select's fighters by slot (0x33e4c: Akira, Pai, Lau, Wolf, Jeffry, Kage, Sarah,
+// Jacky, Shun, Lion, then Dural's hidden slot) are read for the fighter a slot sets (12 places
+// in the select's code, each `ldib 0x33e4c(r4),r15` then `stib r15,0x1b0(g7)`: the fighter, which
+// the select loads it by, and its portrait) and for the name and profile it shows (3, ldob). The
+// first ones are pointed at a copy past the program's end (in the 2 MB ROM space, zeros there),
+// Akira's slot the secret character; the name and profile stay Akira's. 0 puts it all back.
+bool model2a::set_secret_character(int fighter)
+{
+	static constexpr u32 TABLE = 0x33e4c, COPY = 0x1fff00, N = 11;
+	static constexpr u32 SETS[] = { 0x3213c, 0x322b4, 0x32508, 0x32680, 0x32800, 0x3297c, 0x32b30, 0x32cf4,
+		0x32e6c, 0x32fec, 0x33168, 0x3331c };
+	if (fighter != 0 && fighter != 9 && fighter != 11 && fighter != 12) return false;
+	auto &rom = m_roms.regions[romset::MAINCPU];
+	auto word = [&](u32 a) { u32 v; memcpy(&v, &rom[a], 4); return v; };
+	if (rom.size() < COPY + N || ::crc32(0, &rom[TABLE], N) != 0xaa40f124) return false;
+	for (u32 a : SETS)
+		if (word(a) != 0xc0793400 || (word(a + 4) != TABLE && word(a + 4) != COPY) || word(a + 8) != 0xc27de1b0) return false;
+	// (only bytes that change: Off on a program never patched leaves it as it is)
+	u8 copy[N] = {};
+	if (fighter) { memcpy(copy, &rom[TABLE], N); copy[0] = u8(fighter); }
+	if (memcmp(&rom[COPY], copy, N)) {
+		memcpy(&rom[COPY], copy, N);
+		if (m_rec) m_rec->code_changed(COPY, N);
+	}
+	const u32 to = fighter ? COPY : TABLE;
+	for (u32 a : SETS)
+		if (word(a + 4) != to) {
+			memcpy(&rom[a + 4], &to, 4);
+			if (m_rec) m_rec->code_changed(a, 8);
+		}
+	return true;
+}
+
 // smooth motion's backdrop move: the screen's move for a unit of the backdrop's scroll (its x
 // goes against the horizontal scroll, its y with the vertical; found by matching the backdrop
 // drawn a frame on, moved back, to the frame before's)
