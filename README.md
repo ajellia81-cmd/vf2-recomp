@@ -24,6 +24,11 @@ recompiled to native code, with render scales up to 6x, widescreen and smooth mo
   <a href="https://vf2-recomp.pages.dev/img/montage.jpg"><img src="https://vf2-recomp.pages.dev/img/montage.jpg" alt="Virtua Fighter 2 Recomp at 3x: fights on five stages and the widescreen player select" width="800"></a>
 </p>
 
+<p align="center">
+  <a href="https://youtu.be/mpaUiJwlYu8"><img src="https://img.youtube.com/vi/mpaUiJwlYu8/maxresdefault.jpg" alt="Watch the trailer" width="560"></a>
+  <br><sub>Trailer (click to watch on YouTube)</sub>
+</p>
+
 > [!IMPORTANT]
 > No game files are included: no ROMs and nothing made from them. You need your own dump of the game as MAME's
 > `vf2` set (`vf2.zip`, Version 2.1). It is read on your computer, and the game's program is recompiled there each
