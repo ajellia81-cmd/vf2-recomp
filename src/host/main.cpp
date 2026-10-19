@@ -336,6 +336,9 @@ hotkey read_inputs(model2a &m, SDL_Gamepad *pads[2], pad_state ps[2], const play
 		const bool kstart = key(ctl[p].key[C_START]);
 		if (kstart && !key_start_was[p]) press_start();
 		key_start_was[p] = kstart;
+		// Start held reaches the game too, as the cabinet's button: a fighter chosen with Start held
+		// is Dural (version 2.1's code). Only a 6-frame press went through before.
+		bool start_held = kstart;
 		// Coin (a cabinet's coin slot, bound in the menu): a coin for this player, the arcade way
 		// (the PC way is free play: the game takes no coins)
 		const bool kcoin = key(ctl[p].key[C_COIN]);
@@ -385,6 +388,7 @@ hotkey read_inputs(model2a &m, SDL_Gamepad *pads[2], pad_state ps[2], const play
 				for (int a = C_GUARD; a < C_START; a++)
 					if (player_controls::pad_down(g, ctl[p].pad[a])) b |= BITS[a];   // (not Start nor Coin)
 				if (start && !st.start_was) press_start();
+				start_held |= start;
 			}
 			// View tapped on its own: whichever of Menu and Coin it's set as
 			if (!back && st.back_was && !st.back_combo) {
@@ -398,6 +402,7 @@ hotkey read_inputs(model2a &m, SDL_Gamepad *pads[2], pad_state ps[2], const play
 		if (st.coin_frames > 0) { in[0] |= coin_bit; st.coin_frames--; }
 		if (st.start_delay >= 0 && st.start_delay-- == 0) st.start_frames = 6;
 		if (st.start_frames > 0) { in[0] |= start_bit; st.start_frames--; }
+		if (start_held) in[0] |= start_bit;
 	}
 	static bool down_was, start_was, in_test;
 	static int service_frames, test_ago = 1 << 20, test_mode_frames;

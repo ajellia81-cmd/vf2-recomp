@@ -89,6 +89,9 @@ for either player, in any mode.
 They take Akira's place, so Akira can't be picked while one is on; the computer's own fighters, Dural at the end of
 arcade mode included, are unchanged.
 
+The arcade's own Dural code works too: on Version 2.1 (the default), hold Start while you pick any fighter. Holding Up
+while you pick gives that fighter's other costume, the one player 2 wears in a mirror match.
+
 ### Who they are
 
 - **Dural**: the final boss of Virtua Fighter and Virtua Fighter 2, a silver cyborg who fights with a mix of the
