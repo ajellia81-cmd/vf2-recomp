@@ -979,9 +979,18 @@ int main(int argc, char **argv)
 			// SDL's other on Windows (some older cards draw nothing on one and are fine on the other);
 			// SDL_GPU_DRIVER, SDL's own, chooses over this)
 			auto failed_before = [&](const char *d) { return (" " + cfg.gpu3d_failed + " ").find(std::string(" ") + d + " ") != std::string::npos; };
-			const bool try_vulkan = failed_before("direct3d12") && !failed_before("vulkan") && !getenv("SDL_GPU_DRIVER");
+			// (vf2-recomp #19: an RX 9070 on Direct3D 12 took 15 s to start and ~29 ms to take each
+			// picture, 30 a second at any scale; on Vulkan 6x ran at the screen's rate. A Radeon's
+			// Vulkan first then; Direct3D 12 if Vulkan won't start or draws no 3D, remembered)
+#ifdef _WIN32
+			const bool radeon = cards.find("AMD") != std::string::npos || cards.find("Radeon") != std::string::npos;
+#else
+			const bool radeon = false;
+#endif
+			const bool vk_first = radeon && !failed_before("vulkan") && !getenv("SDL_GPU_DRIVER");
+			const bool try_vulkan = (failed_before("direct3d12") || vk_first) && !failed_before("vulkan") && !getenv("SDL_GPU_DRIVER");
 			if (try_vulkan) {
-				fprintf(stderr, "SDL's gpu renderer: Vulkan (the 3D failed on Direct3D 12 here before)\n");
+				fprintf(stderr, "SDL's gpu renderer: Vulkan (%s)\n", failed_before("direct3d12") ? "the 3D failed on Direct3D 12 here before" : "a Radeon: its Vulkan first");
 				SDL_SetHint(SDL_HINT_GPU_DRIVER, "vulkan");
 			}
 			ren = SDL_CreateRenderer(win, "gpu");
@@ -1028,7 +1037,15 @@ int main(int argc, char **argv)
 			if (ren && !getenv("SDL_GPU_DRIVER") && !getenv("VF2_GPU3D_NO_PROBE") && !(failed_before("direct3d12") && failed_before("vulkan"))) {
 				SDL_GPUDevice *gd = SDL_GetGPURendererDevice(ren);
 				const char *drv = gd ? SDL_GetGPUDeviceDriver(gd) : nullptr;
-				if (drv && !strcmp(drv, "direct3d12") && draws_3d(ren) == 0) {
+				if (drv && !strcmp(drv, "vulkan") && vk_first && !failed_before("direct3d12") && draws_3d(ren) == 0) {
+					// (a Radeon's Vulkan chosen first draws nothing: Direct3D 12, as before #19)
+					fprintf(stderr, "SDL's gpu renderer: Vulkan draws no 3D here: Direct3D 12 instead\n");
+					cfg.gpu3d_failed += (cfg.gpu3d_failed.empty() ? "" : " ") + std::string("vulkan");
+					cfg_dirty = true;
+					SDL_DestroyRenderer(ren);
+					SDL_ResetHint(SDL_HINT_GPU_DRIVER);
+					ren = SDL_CreateRenderer(win, "gpu");
+				} else if (drv && !strcmp(drv, "direct3d12") && draws_3d(ren) == 0) {
 					fprintf(stderr, "SDL's gpu renderer: Direct3D 12 draws no 3D here: Vulkan instead\n");
 					if (!failed_before("direct3d12")) { cfg.gpu3d_failed += (cfg.gpu3d_failed.empty() ? "" : " ") + std::string("direct3d12"); cfg_dirty = true; }
 					SDL_DestroyRenderer(ren);
