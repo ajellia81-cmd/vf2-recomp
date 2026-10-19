@@ -38,6 +38,7 @@ public:
 	void set_fps(const std::string &text);      // the small FPS at the top right; empty hides it   // the small line at the bottom right (version and date)
 
 	bool is_open() const { return m_open; }
+	bool capturing() const { return bool(m_capture); }   // (a key or a seed being typed: every key its)
 	void open(menu_page root);            // opens at this page
 	void close();
 	void push(menu_page p);               // a sub-page
