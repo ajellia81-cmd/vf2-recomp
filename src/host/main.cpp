@@ -492,6 +492,7 @@ struct settings
 	// scale and antialiasing ("3x1:g 2x1:c": a start there starts on that one, then checks it)
 	int renderer3d = 2, gpu_quality = 0;
 	std::string auto3d;
+	int graphics = 0;          // Windows: the GPU's driver, from the next start: 0 Auto (Vulkan first, Direct3D 12 if it won't start or draws no 3D), 1 Direct3D 12
 	std::string gpu3d_failed;   // SDL_GPU's drivers whose 3D failed here ("direct3d12 vulkan"): the next start tries the next
 	std::string roms_folder;   // where the player keeps vf2.zip (roms_folder = ...: kept as written)
 	int arcade_coin = -2;   // the arcade way's coin setting, kept while the PC way has FREE PLAY in its place (-1: none to give back; -2: none kept yet)   // the render scale this machine needed pipelining at (the governor's, kept: a start there starts pipelined)
@@ -531,6 +532,7 @@ struct settings
 		num("pipelined_at", pipelined_at, 0, MAX_SCALE);
 		num("renderer_3d", renderer3d, 0, 2);
 		num("gpu_quality", gpu_quality, 0, 1);
+		num("graphics", graphics, 0, 1);
 		if (auto it = kv.find("auto_3d"); it != kv.end()) auto3d = it->second;
 		if (auto it = kv.find("gpu_3d_failed"); it != kv.end()) gpu3d_failed = it->second;
 		// (older builds saved a driver as failed for any GPU error in play, a suspend or a reset: every
@@ -582,6 +584,7 @@ struct settings
 				int(fullscreen), int(timings), volume, int(arcade), int(smooth_bg), music, effects, aa, int(show_fps), filter, ring, int(smooth), pipelined_at, arcade_coin);
 		fprintf(f, "renderer_3d = %d\ngpu_quality = %d\nauto_3d = %s\n", renderer3d, gpu_quality, auto3d.c_str());
 		fprintf(f, "secret_character = %d\n", secret);
+		if (graphics) fprintf(f, "graphics = %d\n", graphics);
 		if (!gpu3d_failed.empty()) fprintf(f, "gpu_3d_failed = %s\n", gpu3d_failed.c_str());
 		if (!roms_folder.empty()) fprintf(f, "roms_folder = %s\n", roms_folder.c_str());
 		for (int p = 0; p < 2; p++) ctl[p].save(f, p);
@@ -986,16 +989,18 @@ int main(int argc, char **argv)
 			auto failed_before = [&](const char *d) { return (" " + cfg.gpu3d_failed + " ").find(std::string(" ") + d + " ") != std::string::npos; };
 			// (vf2-recomp #19: an RX 9070 on Direct3D 12 took 15 s to start and ~29 ms to take each
 			// picture, 30 a second at any scale; on Vulkan 6x ran at the screen's rate. A Radeon's
-			// Vulkan first then; Direct3D 12 if Vulkan won't start or draws no 3D, remembered)
+			// Vulkan first then, and since #21 and #22 (NVIDIA: ~100 ms a 3D picture on Direct3D 12,
+			// ~5-10 on Vulkan) any card's on Windows, not Microsoft's software one; Direct3D 12 if
+			// Vulkan won't start or draws no 3D, remembered, or if Display > Graphics driver says so)
 #ifdef _WIN32
-			const bool radeon = cards.find("AMD") != std::string::npos || cards.find("Radeon") != std::string::npos;
+			const bool card = !cards.empty() && !(cards.rfind("Microsoft", 0) == 0 && cards.find(", ") == std::string::npos);
 #else
-			const bool radeon = false;
+			const bool card = false;
 #endif
-			const bool vk_first = radeon && !failed_before("vulkan") && !getenv("SDL_GPU_DRIVER");
+			const bool vk_first = card && cfg.graphics == 0 && !failed_before("vulkan") && !getenv("SDL_GPU_DRIVER");
 			const bool try_vulkan = (failed_before("direct3d12") || vk_first) && !failed_before("vulkan") && !getenv("SDL_GPU_DRIVER");
 			if (try_vulkan) {
-				fprintf(stderr, "SDL's gpu renderer: Vulkan (%s)\n", failed_before("direct3d12") ? "the 3D failed on Direct3D 12 here before" : "a Radeon: its Vulkan first");
+				fprintf(stderr, "SDL's gpu renderer: Vulkan (%s)\n", failed_before("direct3d12") ? "the 3D failed on Direct3D 12 here before" : "Windows: Vulkan first");
 				SDL_SetHint(SDL_HINT_GPU_DRIVER, "vulkan");
 			}
 			ren = SDL_CreateRenderer(win, "gpu");
@@ -1043,7 +1048,7 @@ int main(int argc, char **argv)
 				SDL_GPUDevice *gd = SDL_GetGPURendererDevice(ren);
 				const char *drv = gd ? SDL_GetGPUDeviceDriver(gd) : nullptr;
 				if (drv && !strcmp(drv, "vulkan") && vk_first && !failed_before("direct3d12") && draws_3d(ren) == 0) {
-					// (a Radeon's Vulkan chosen first draws nothing: Direct3D 12, as before #19)
+					// (Vulkan chosen first draws nothing: Direct3D 12, as before #19)
 					fprintf(stderr, "SDL's gpu renderer: Vulkan draws no 3D here: Direct3D 12 instead\n");
 					cfg.gpu3d_failed += (cfg.gpu3d_failed.empty() ? "" : " ") + std::string("vulkan");
 					cfg_dirty = true;
@@ -2200,6 +2205,12 @@ int main(int argc, char **argv)
 				redraw_shown();
 				log_state("the player's 3D renderer");
 			} });
+#ifdef _WIN32
+		p.items.push_back({ "Graphics driver",
+			"Which of Windows' graphics drivers the GPU uses. Auto starts on Vulkan, and on Direct3D 12 if Vulkan won't start or can't draw the game's 3D. Pick Direct3D 12 if the game runs better on it here. Takes effect the next time the game starts.",
+			[&] { return std::string(cfg.graphics ? "Direct3D 12" : "Auto (Vulkan first)"); },
+			[&](int) { cfg.graphics = !cfg.graphics; cfg_dirty = true; } });
+#endif
 		if (g3.dev && !strcmp(g3.dev->name(), "metal")) p.items.push_back({ "GPU quality",
 			"Exact draws the 3D on the GPU pixel for pixel as the CPU does. Fast takes shortcuts: quicker on a slow graphics card, with slight differences in texture detail and at edges.",
 			[&] { return std::string(cfg.gpu_quality ? "Fast" : "Exact"); },
