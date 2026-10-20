@@ -167,6 +167,9 @@
 #include <cstring>
 #include <filesystem>
 #include <map>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
 #include <memory>
 #include <optional>
 #include <string>
@@ -467,6 +470,42 @@ bool save_blob(const std::string &path, const void *src, size_t n)
 	if (fclose(f) != 0 || !ok) { std::error_code ec; std::filesystem::remove(tmp, ec); return false; }
 	return replace_file(path, tmp);
 }
+
+// The saves written off the game's thread: save_blob flushes each file to the disk (a crash mid-save
+// keeps the old one), which on a hard disk waits tens of milliseconds a file, and the autosave ran
+// every few seconds in play: a hitch each time (a reporter: "on an SSD barely noticeable, on a HDD
+// heavy stutter even at 1x"). put() hands over a copy and returns at once; a writer thread saves
+// it, the newest copy of a file winning if two wait. finish() writes what's left and stops.
+struct bg_saver {
+	std::mutex mx;
+	std::condition_variable cv;
+	std::map<std::string, std::vector<uint8_t>> jobs;
+	bool stop = false;
+	std::thread th{ [this] { run(); } };
+	void put(const std::string &path, const void *src, size_t n) {
+		{ std::lock_guard<std::mutex> l(mx); if (stop) return; jobs[path].assign(static_cast<const uint8_t *>(src), static_cast<const uint8_t *>(src) + n); }
+		cv.notify_one();
+	}
+	void run() {
+		std::unique_lock<std::mutex> l(mx);
+		for (;;) {
+			cv.wait(l, [&] { return stop || !jobs.empty(); });
+			if (jobs.empty()) return;   // (stop, nothing left)
+			auto todo = std::move(jobs);
+			jobs.clear();
+			l.unlock();
+			for (auto &[path, bytes] : todo)
+				if (!save_blob(path, bytes.data(), bytes.size())) fprintf(stderr, "couldn't save %s\n", path.c_str());
+			l.lock();
+		}
+	}
+	void finish() {
+		{ std::lock_guard<std::mutex> l(mx); stop = true; }
+		cv.notify_one();
+		if (th.joinable()) th.join();
+	}
+	~bg_saver() { finish(); }
+};
 
 uint64_t fnv(const void *p, size_t n, uint64_t h = 1469598103934665603ull)
 {
@@ -863,11 +902,20 @@ int main(int argc, char **argv)
 	// game's first settings, an arcade setting changed in the first seconds).
 	auto nvram_hash = [&] { return fnv(m.eeprom_cells(), 128, fnv(m.backup_ram().data(), m.backup_ram().size())); };
 	uint64_t saved_hash = nvram_hash();
-	auto save_nvram = [&] {
+	bg_saver saver;   // (the autosave's writes, off the game's thread)
+	bool nv_put = false;   // (the backup handed to it: the last save at quit writes it whatever, in case its write failed)
+	auto save_nvram = [&](bool now) {
 		if (quit_after >= 0 && !test_saves) return;   // test runs leave the saves alone
 		const uint64_t h = nvram_hash();
-		if (h == saved_hash) return;
+		if (h == saved_hash && !(now && nv_put)) return;
 		std::filesystem::create_directories(data, ec);
+		if (!now) {
+			nv_put = true;   // (play: handed to the writer; a failed write says so in the log, tried at the next change)
+			saver.put(backup_path, m.backup_ram().data(), m.backup_ram().size());
+			saver.put(eeprom_path, m.eeprom_cells(), 64 * sizeof(u16));
+			saved_hash = h;
+			return;
+		}
 		if (save_blob(backup_path, m.backup_ram().data(), m.backup_ram().size()) &&
 			save_blob(eeprom_path, m.eeprom_cells(), 64 * sizeof(u16)))
 			saved_hash = h;
@@ -2147,7 +2195,7 @@ int main(int argc, char **argv)
 		SDL_RenderPresent(ren);
 		boot();
 		g_test_frames = 0;
-		save_nvram();
+		save_nvram(false);
 		fprintf(stderr, "the game restarted\n");
 		std::vector<uint32_t> black(size_t(m.width()) * scale * model2a::HEIGHT * scale, 0xff000000);
 		SDL_UpdateTexture(tex, nullptr, black.data(), m.width() * scale * 4);
@@ -3491,11 +3539,15 @@ int main(int argc, char **argv)
 			// a setting changed outside the menu (F5, F6, a pad's View + LB or RB): saved within 3 s,
 			// not only at quit (Steam can end the game without one)
 			if (cfg_dirty && !menu.is_open() && (quit_after < 0 || test_saves)) { if (save_settings()) cfg_dirty = false; }
-			save_nvram();
+			// the backup within a minute of changing (every 3 s before: the arcade's bookkeeping
+			// changes it in play, so it was written that often; and at quit as ever)
+			static uint64_t next_nvram = SDL_GetTicksNS() + 60000000000ull;
+			if (SDL_GetTicksNS() >= next_nvram) { next_nvram = SDL_GetTicksNS() + 60000000000ull; save_nvram(false); }
 		}
 	}
 	finish_async(false);
-	save_nvram();
+	saver.finish();   // (an autosave still being written, done before the last save: the same files)
+	save_nvram(true);
 	if (cfg_dirty && (quit_after < 0 || test_saves)) save_settings();
 	for (auto &[id, j] : vpads) { if (j) SDL_CloseJoystick(j); SDL_DetachVirtualJoystick(id); }
 	g3_free();
