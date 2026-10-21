@@ -558,7 +558,11 @@ struct settings
 	// the 3D's renderer (Display > 3D renderer): 0 the CPU, 1 the GPU, 2 Auto (whichever is faster
 	// here); the GPU's quality (0 exact, 1 fast); and Auto's choices so far on this machine, by
 	// scale and antialiasing ("3x1:g 2x1:c": a start there starts on that one, then checks it)
+#if defined(VF2_IOS)
+	int renderer3d = 0, gpu_quality = 0; // CPU default until shared-layer Metal is validated on-device.
+#else
 	int renderer3d = 2, gpu_quality = 0;
+#endif
 	std::string auto3d;
 	int graphics = 0;          // Windows: the GPU's driver, from the next start: 0 Auto (Vulkan first, Direct3D 12 if it won't start or draws no 3D), 1 Direct3D 12
 	std::string gpu3d_failed;   // SDL_GPU's drivers whose 3D failed here ("direct3d12 vulkan"): the next start tries the next

@@ -1,10 +1,23 @@
-# Local iOS build dependencies
+# Reproducible iOS dependencies
 
-Place these unmodified, redistributable development dependencies here before generating the Xcode project:
+Run `sh ios/Scripts/prepare-dependencies.sh` on a macOS cloud runner with Xcode,
+CMake 3.24+ and Git. The script fetches **source code only**, at the exact commits
+in `versions.env` (SDL 3.4.2 and FreeType 2.13.3), and builds static arm64 libraries
+for iPhoneOS and iPhoneSimulator. It does not build this app or fetch game data.
 
-* `SDL3.xcframework` with iPhoneOS arm64 and iPhoneSimulator arm64 slices.
-* `FreeType.xcframework` with the same slices, exposing headers under the framework's `Headers/` directory.
+Generated `SDL3.xcframework` and `FreeType.xcframework` stay ignored. Static
+XCFrameworks are linked, never embedded as dynamic frameworks. The SDL headers
+use `Headers/SDL3/`; FreeType exposes `ft2build.h` and `freetype/` at `Headers/`.
+SDK-specific header search paths are recorded in `Config/Debug.xcconfig`.
 
-They are intentionally ignored by Git. Do not put ROMs, generated ROM code, or game assets in this directory. The project links zlib from the iOS SDK.
+FreeType's optional compressed-font/image/shaping dependencies are disabled;
+the bundled TTF menu fonts need none of them. The app links SDK zlib for its
+existing ZIP reader. SDL OpenGL ES and HIDAPI are disabled; Metal, UIKit and
+GameController are retained. Source licenses are copied to `ios/build/licenses/`.
+Include those, FreeType's referenced `docs/FTL.TXT`/`docs/GPLv2.TXT`, and the
+repository's third-party notices in any later personal packaging.
 
-The selected SDL3 headers must provide the APIs used by this source tree, including SDL dialogs, gamepads, renderer Metal-layer access, and SDL GPU declarations. Confirm that at the first device build rather than silently substituting a different SDL major version.
+No ROM, extracted data, generated game code, IPA, signing key, or provisioning
+profile belongs in this directory. Dependencies may be rebuilt without the
+user's computer or signing credentials. Their macOS/iOS build is unverified
+until the cloud compilation check completes.

@@ -538,7 +538,7 @@ public:
 		NSError *err = nil;
 		MTLCompileOptions *co = [MTLCompileOptions new];
 		// no fast math: the CPU's float arithmetic as it is (IEEE division, no reassociation)
-		if (@available(macOS 15.0, *)) co.mathMode = MTLMathModeSafe;
+		if (@available(macOS 15.0, iOS 18.0, *)) co.mathMode = MTLMathModeSafe;
 		else {
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"

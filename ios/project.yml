@@ -20,15 +20,15 @@ targets:
       - path: ../third_party/mame/m68000
       - path: ../third_party/rmlui/Source/Core
       - path: ../third_party/rmlui/Backends
-    resources:
       - path: ../assets
         type: folder
+        buildPhase: resources
     configFiles:
       Debug: Config/Debug.xcconfig
       Release: Config/Release.xcconfig
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.vf2recomp
+        PRODUCT_BUNDLE_IDENTIFIER: com.ajellia81.vf2recomp
         PRODUCT_NAME: Virtua Fighter 2 Recomp
         TARGETED_DEVICE_FAMILY: "1,2"
         INFOPLIST_FILE: Info.plist
@@ -43,11 +43,16 @@ targets:
       # Place locally built/downloaded XCFrameworks in ios/Dependencies/. They are deliberately
       # not vendored or fetched by project generation.
       - framework: Dependencies/SDL3.xcframework
-        embed: true
+        embed: false
       - framework: Dependencies/FreeType.xcframework
-        embed: true
+        embed: false
       - sdk: UIKit.framework
       - sdk: CoreVideo.framework
+      - sdk: CoreMedia.framework
+      - sdk: CoreAudio.framework
+      - sdk: CoreMotion.framework
+      - sdk: CoreHaptics.framework
+      - sdk: CoreBluetooth.framework
       - sdk: AudioToolbox.framework
       - sdk: AVFoundation.framework
       - sdk: CoreGraphics.framework
@@ -56,3 +61,6 @@ targets:
       - sdk: GameController.framework
       - sdk: UniformTypeIdentifiers.framework
       - sdk: QuartzCore.framework
+    scheme:
+      gatherCoverageData: false
+      buildImplicitDependencies: true
