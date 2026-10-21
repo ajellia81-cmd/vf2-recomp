@@ -14,7 +14,6 @@ targets:
       - path: Sources
       - path: ../src
         excludes:
-          - host/d3d11_map.cpp
           - gpu/gpu3d_sdlgpu.cpp
           - rec/i960_native.cpp
       - path: ../third_party/mame/i960
@@ -47,6 +46,8 @@ targets:
         embed: true
       - framework: Dependencies/FreeType.xcframework
         embed: true
+      - sdk: UIKit.framework
+      - sdk: CoreVideo.framework
       - sdk: AudioToolbox.framework
       - sdk: AVFoundation.framework
       - sdk: CoreGraphics.framework

@@ -3,7 +3,7 @@
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
 
-#include "../../../src/host/romset.h"
+#include "../../src/host/romset.h"
 
 @interface VF2ROMImport () <UIDocumentPickerDelegate>
 @property(nonatomic, copy) void (^completion)(NSURL *, NSString *);

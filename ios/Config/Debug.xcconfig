@@ -1,5 +1,5 @@
 # Keep the iOS target interpreter-only. Never remove this without an iOS distribution review.
-GCC_PREPROCESSOR_DEFINITIONS = $(inherited) VF2_IOS=1 VF2_DISABLE_JIT=1
+GCC_PREPROCESSOR_DEFINITIONS = $(inherited) VF2_IOS=1 VF2_DISABLE_JIT=1 RMLUI_STATIC_LIB=1 RMLUI_FONT_ENGINE_FREETYPE=1 RMLUI_SDL_VERSION_MAJOR=3
 CLANG_CXX_LANGUAGE_STANDARD = c++20
 HEADER_SEARCH_PATHS = $(inherited) $(SRCROOT)/Generated $(SRCROOT)/../src/core/shim_include $(SRCROOT)/../third_party/rmlui/Include $(SRCROOT)/../third_party/rmlui/Backends
 OTHER_CPLUSPLUSFLAGS = $(inherited) -DVF2_IOS=1 -DVF2_DISABLE_JIT=1

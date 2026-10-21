@@ -1,7 +1,7 @@
 #pragma once
 
 #include <array>
-#include "../../../src/host/controls.h"
+#include "../../src/host/controls.h"
 
 // UI-neutral state consumed once per emulation frame by the SDL host integration.
 // Values use the existing control_action enum so saved desktop mappings remain authoritative.

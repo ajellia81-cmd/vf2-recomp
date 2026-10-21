@@ -1,12 +1,13 @@
 #import <GameController/GameController.h>
 #import <UIKit/UIKit.h>
 
-#include "../../../src/host/ios_input.h"
+#include "../../src/host/ios_input.h"
 
 namespace {
 
 ios_input_snapshot g_input;
 bool g_installed = false;
+id controller_observer = nil;
 
 void bind_button(GCControllerButtonInput *button, int player, control_action action)
 {
@@ -123,7 +124,6 @@ void ios_input_install()
 	g_installed = true;
 	int player = 0;
 	for (GCController *controller in GCController.controllers) attach(controller, player++);
-	static id controller_observer = nil;
 	controller_observer = [[NSNotificationCenter defaultCenter] addObserverForName:GCControllerDidConnectNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) {
 		for (int p = 0; p < 2; p++) if (!g_input.down[p][C_START]) { attach(note.object, p); break; }
 	}];

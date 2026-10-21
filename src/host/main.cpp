@@ -158,7 +158,7 @@
 #ifdef __APPLE__
 #include <pthread.h>
 #endif
-#ifdef _WIN32
+#if defined(_WIN32) || defined(VF2_IOS)
 #include <SDL3/SDL_main.h>   // WinMain, and argv as UTF-8
 #endif
 #include <algorithm>
