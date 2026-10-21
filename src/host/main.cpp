@@ -150,6 +150,9 @@
 #include "../gpu/gpu3d.h"
 #include "menu.h"
 #include "controls.h"
+#if defined(VF2_IOS)
+#include "ios_input.h"
+#endif
 #include "sysinfo.h"
 #include <SDL3/SDL.h>
 #ifdef __APPLE__
@@ -313,7 +316,11 @@ bool g_left_test_menu = false;   // set when it closes (the PC way then restarts
 
 // The pressed bits of IN0, IN1 and IN2 for the next frame, from the keyboard and the pads, and the
 // hotkeys pressed on a pad
-hotkey read_inputs(model2a &m, SDL_Gamepad *pads[2], pad_state ps[2], const player_controls ctl[2], uint8_t in[3])
+hotkey read_inputs(model2a &m, SDL_Gamepad *pads[2], pad_state ps[2], const player_controls ctl[2], uint8_t in[3]
+#if defined(VF2_IOS)
+	, const ios_input_snapshot *ios
+#endif
+)
 {
 	static const uint8_t BITS[C_COUNT] = {
 		PL_UP, PL_DOWN, PL_LEFT, PL_RIGHT, PL_GUARD, PL_PUNCH, PL_KICK,
@@ -347,6 +354,20 @@ hotkey read_inputs(model2a &m, SDL_Gamepad *pads[2], pad_state ps[2], const play
 		const bool kcoin = key(ctl[p].key[C_COIN]);
 		if (kcoin && !key_coin_was[p] && !g_pc_mode) st.coin_frames = 6;
 		key_coin_was[p] = kcoin;
+		// iOS's UIKit/GameController layer is intentionally merged here, before the
+		// same cabinet-bit conversion used by keyboard and SDL gamepads.
+#if defined(VF2_IOS)
+		if (ios) {
+			for (int a = 0; a < C_START; a++)
+				if (ios->down[p][a]) in[1 + p] |= BITS[a];
+			static bool ios_start_was[2], ios_coin_was[2];
+			if (ios->down[p][C_START] && !ios_start_was[p]) press_start();
+			ios_start_was[p] = ios->down[p][C_START];
+			if (ios->down[p][C_COIN] && !ios_coin_was[p] && !g_pc_mode) st.coin_frames = 6;
+			ios_coin_was[p] = ios->down[p][C_COIN];
+			if (p == 0 && ios->menu_pressed) hk = hotkey::menu;
+		}
+#endif
 
 		const uint8_t coin_bit = p ? IN0_COIN2 : IN0_COIN1, start_bit = p ? IN0_START2 : IN0_START1;
 		if (SDL_Gamepad *g = pads[p]) {
@@ -1004,6 +1025,10 @@ int main(int argc, char **argv)
 	SDL_Window *win = SDL_CreateWindow("Virtua Fighter 2", win_w, win_h,
 		SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY | (fullscreen ? SDL_WINDOW_FULLSCREEN : 0) | SDL_WINDOW_HIDDEN);
 	if (!win) return fail(std::string("Couldn't open the window: ") + SDL_GetError());
+	// The UIKit overlay is optional input only; SDL continues to own the game window.
+#if defined(VF2_IOS)
+	ios_input_install();
+#endif
 	SDL_HideCursor();
 	int focus_checks = 600;   // about 5 s: going fullscreen on a Mac moves to a new Space, which takes a while
 	SDL_Renderer *ren = nullptr;
@@ -2890,7 +2915,14 @@ int main(int argc, char **argv)
 			uint8_t ports[input_script::N_PORTS];
 			script.apply(game_frame, ports);
 			uint8_t live[3];
-			const hotkey hk = read_inputs(m, pads, pstate, cfg.ctl, live);
+			#if defined(VF2_IOS)
+			ios_input_snapshot ios = ios_input_read();
+			#endif
+			const hotkey hk = read_inputs(m, pads, pstate, cfg.ctl, live
+#if defined(VF2_IOS)
+				, &ios
+#endif
+			);
 			m.m_in0 = ports[input_script::IN0] & ~live[0];
 			m.m_in1 = ports[input_script::IN1] & ~live[1];
 			m.m_in2 = ports[input_script::IN2] & ~live[2];

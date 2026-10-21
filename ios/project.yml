@@ -1,0 +1,57 @@
+name: VF2Recomp
+options:
+  minimumXcodeGenVersion: 2.38.0
+  createIntermediateGroups: true
+configs:
+  Debug: debug
+  Release: release
+targets:
+  VF2Recomp:
+    type: application
+    platform: iOS
+    deploymentTarget: "15.0"
+    sources:
+      - path: Sources
+      - path: ../src
+        excludes:
+          - host/d3d11_map.cpp
+          - gpu/gpu3d_sdlgpu.cpp
+          - rec/i960_native.cpp
+      - path: ../third_party/mame/i960
+      - path: ../third_party/mame/m68000
+      - path: ../third_party/rmlui/Source/Core
+      - path: ../third_party/rmlui/Backends
+    resources:
+      - path: ../assets
+        type: folder
+    configFiles:
+      Debug: Config/Debug.xcconfig
+      Release: Config/Release.xcconfig
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.vf2recomp
+        PRODUCT_NAME: Virtua Fighter 2 Recomp
+        TARGETED_DEVICE_FAMILY: "1,2"
+        INFOPLIST_FILE: Info.plist
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.games
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: ""
+        SUPPORTS_MACCATALYST: NO
+    dependencies:
+      # Place locally built/downloaded XCFrameworks in ios/Dependencies/. They are deliberately
+      # not vendored or fetched by project generation.
+      - framework: Dependencies/SDL3.xcframework
+        embed: true
+      - framework: Dependencies/FreeType.xcframework
+        embed: true
+      - sdk: AudioToolbox.framework
+      - sdk: AVFoundation.framework
+      - sdk: CoreGraphics.framework
+      - sdk: Foundation.framework
+      - sdk: Metal.framework
+      - sdk: GameController.framework
+      - sdk: UniformTypeIdentifiers.framework
+      - sdk: QuartzCore.framework

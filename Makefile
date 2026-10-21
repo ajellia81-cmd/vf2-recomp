@@ -6,6 +6,12 @@
 CXX ?= clang++
 CXXFLAGS ?= -std=c++20 -O2 -g -Wall -Wno-unused-variable -Wno-unused-but-set-variable -Wno-unused-function
 CXXFLAGS += -Isrc/core/shim_include $(EXTRA_CFLAGS)
+# iOS and other platforms which cannot create executable memory must keep this at 0.
+# The MAME i960 interpreter remains the supported execution path in that configuration.
+JIT ?= 1
+ifeq ($(JIT),0)
+CXXFLAGS += -DVF2_DISABLE_JIT=1
+endif
 LDLIBS ?= -lz
 SDL_CFLAGS ?= $(shell pkg-config --cflags sdl3 2>/dev/null || echo -I/opt/homebrew/include)
 SDL_LIBS ?= $(shell pkg-config --libs sdl3 2>/dev/null || echo -L/opt/homebrew/lib -lSDL3)
@@ -31,7 +37,12 @@ FORCE:
 # MAME's i960 core and disassembler (third_party/mame), on our shim, with the recompiled code's
 # runtime (src/rec: the code found with the address map, src/rec/vf2_map.cpp, made native at start-up)
 CORE = third_party/mame/i960/i960.cpp third_party/mame/i960/i960dis.cpp src/core/mame_shim.cpp src/core/mb86233.cpp \
-	src/core/i960_device.cpp src/rec/i960_rec.cpp src/rec/i960_analyse.cpp src/rec/i960_native.cpp src/rec/vf2_map.cpp
+	src/core/i960_device.cpp src/rec/i960_rec.cpp src/rec/i960_analyse.cpp src/rec/vf2_map.cpp
+ifeq ($(JIT),0)
+CORE += src/rec/i960_native_stub.cpp
+else
+CORE += src/rec/i960_native.cpp
+endif
 MACHINE = src/machine/model2a.cpp src/machine/model2_video.cpp src/machine/model2_smooth.cpp src/machine/scsp.cpp src/machine/scspdsp.cpp
 # MAME's 68000 (the sound board's CPU): the generated instruction handlers, unchanged
 M68000 = third_party/mame/m68000/m68000.cpp third_party/mame/m68000/m68000-decode.cpp \
@@ -42,9 +53,13 @@ HOST = src/host/romset.cpp src/host/input_script.cpp
 # SLJIT (BSD-2): the native code made at start-up. C, built by the C++ compiler's driver (-x c), so
 # that the builds that set only CXX (a cross-compiler, -arch) build it for the same target.
 SLJIT_OBJ = $(OBJ)/third_party/sljit/sljitLir.o
+ifneq ($(JIT),0)
 $(SLJIT_OBJ): third_party/sljit/sljitLir.c
 	@mkdir -p $(dir $@)
 	$(CXX) -x c -O2 -w -DSLJIT_CONFIG_AUTO=1 -c $< -o $@
+else
+SLJIT_OBJ =
+endif
 
 $(OBJ)/%.o: %.cpp
 	@mkdir -p $(dir $@)

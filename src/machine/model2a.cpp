@@ -199,7 +199,11 @@ model2a::model2a(romset::result &&roms)
 	m_sched[CPU_Z80].set_rate(32000000 / 4);
 	// the i960's program recompiled to native code now (src/rec), unless VF2_INTERP is set (MAME's
 	// interpreter: the reference, cycle for cycle the same)
+	// iOS forbids the writable/executable memory used by SLJIT.  VF2_DISABLE_JIT is
+	// deliberately a compile-time guard so an App Store build cannot opt into it.
+#if !defined(VF2_DISABLE_JIT)
 	if (!getenv("VF2_INTERP")) use_native();
+#endif
 }
 
 // device_execute_interface::clock_changed
@@ -427,6 +431,11 @@ bool model2a::use_generated()
 
 bool model2a::use_native(const std::string &map_path, i960rec::native_stats *stats)
 {
+#if defined(VF2_DISABLE_JIT)
+	(void)map_path;
+	if (stats) *stats = {};
+	return false;
+#else
 	i960rec::hints map;
 	if (map_path.empty()) map.parse(i960rec::vf2_map_text);
 	else if (!map.read(map_path)) return false;
@@ -441,6 +450,7 @@ bool model2a::use_native(const std::string &map_path, i960rec::native_stats *sta
 	m_rec = std::move(r);
 	m_cpu.set_rec(m_rec.get());
 	return true;
+#endif
 }
 
 void model2a::use_interpreter()

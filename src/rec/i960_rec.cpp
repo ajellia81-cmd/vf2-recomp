@@ -73,6 +73,13 @@ void runtime::recount()
 void runtime::code_changed(uint32_t addr, uint32_t n)
 {
 	if (nentry) {   // native: made again from the program as it is now (a few tens of ms), if it changed
+		// Native code is never installed in a VF2_DISABLE_JIT build, but retain this
+		// guard for callers that switch runtimes while porting.
+#if defined(VF2_DISABLE_JIT)
+		nentry = nullptr;
+		table.assign(LIMIT / 4, nullptr);
+		return;
+#else
 		bool hit = false;
 		for (auto &[a, d] : native_program->insns)
 			if (a < addr + n && addr < a + uint32_t(d.len) && (rd(rd_ctx, a) != d.op || (d.len == 8 && rd(rd_ctx, a + 4) != d.disp))) { hit = true; break; }
@@ -81,6 +88,7 @@ void runtime::code_changed(uint32_t addr, uint32_t n)
 			if (!build_native(*this, rd, rd_ctx, limit, m)) { nentry = nullptr; table.assign(LIMIT / 4, nullptr); }
 		}
 		return;
+#endif
 	}
 	for (size_t k = 0; k < fns.size(); k++) {
 		bool hit = false;

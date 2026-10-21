@@ -5,3 +5,7 @@ build/
 *.zip
 *.bin
 .DS_Store
+# Locally provisioned iOS toolchain artifacts; no game material belongs here.
+ios/Dependencies/*.xcframework/
+ios/VF2Recomp.xcodeproj/
+ios/build/

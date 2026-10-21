@@ -228,6 +228,8 @@ The release packages: `tools/mac/package.sh` (Mac), `tools/win/build.sh` (Window
 `tools/deck/build.sh` (Linux / Steam Deck: x86-64, in Valve's Steam Runtime "sniper" SDK container).
 `tools/release/licenses.sh` gathers the third-party notices they carry.
 
+The initial iOS port structure, ROM-import policy, interpreter-only execution decision, and deferred device-validation plan are in [ios/README.md](ios/README.md). It is a scaffold only; no iOS build has been attempted or released.
+
 `build/bin/vf2run` runs the board headless (pictures, RAM dumps, raw sound, an input script such as
 `tools/scripts/start_game.txt`); `tools/compare.py` and `tools/sound_compare.py` compare its output with MAME's.
 The address map is made from coverage runs (`vf2run --cov`, then `make map`). `make rec` also recompiles the
