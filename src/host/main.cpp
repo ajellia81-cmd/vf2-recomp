@@ -2765,6 +2765,32 @@ int main(int argc, char **argv)
 			for (SDL_Scancode s : c.key) if (s == SDL_SCANCODE_F) return false;
 		return true;
 	};
+#if defined(VF2_IOS)
+	// UIKit may suspend us before a queued event is polled. SDL requires lifecycle
+	// work in an event watch, synchronously inside its main-thread UIKit callback.
+	std::function<void(const SDL_Event &)> lifecycle = [&](const SDL_Event &event) {
+		if (!SDL_IsMainThread()) return; // UI lifecycle notifications originate on the main thread.
+		if (event.type == SDL_EVENT_WILL_ENTER_BACKGROUND || event.type == SDL_EVENT_TERMINATING) {
+			ios_background = true;
+			ios_input_reset();
+			sync_menu_sound();
+			saver.flush();
+			save_nvram(true);
+			if (cfg_dirty && save_settings()) cfg_dirty = false;
+			if (audio) SDL_ClearAudioStream(audio);
+		} else if (event.type == SDL_EVENT_DID_ENTER_FOREGROUND) {
+			ios_background = false;
+			ios_input_reset();
+			restart_clock();
+			sync_menu_sound();
+		}
+	};
+	const SDL_EventFilter lifecycle_watch = [](void *context, SDL_Event *event) -> bool {
+		(*static_cast<std::function<void(const SDL_Event &)> *>(context))(*event);
+		return true;
+	};
+	if (!SDL_AddEventWatch(lifecycle_watch, &lifecycle)) return fail(SDL_GetError());
+#endif
 	while (running) {
 		const int64_t pass = passes++;
 		const pace_window pace0 = pace;
@@ -2813,23 +2839,7 @@ int main(int argc, char **argv)
 #if defined(VF2_IOS)
 			// GCController owns Options/Menu; don't toggle it twice via SDL's Back event.
 			if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && e.gbutton.button == SDL_GAMEPAD_BUTTON_BACK) continue;
-			if (e.type == SDL_EVENT_WILL_ENTER_BACKGROUND) {
-				ios_background = true;
-				ios_input_reset();
-				saver.flush();
-				save_nvram(true);
-				if (cfg_dirty && save_settings()) cfg_dirty = false;
-				if (audio) SDL_ClearAudioStream(audio);
-				sync_menu_sound();
-				continue;
-			}
-			if (e.type == SDL_EVENT_DID_ENTER_FOREGROUND) {
-				ios_background = false;
-				ios_input_reset();
-				restart_clock();
-				sync_menu_sound();
-				continue;
-			}
+
 #endif
 			if (e.type == SDL_EVENT_QUIT) running = false;
 			else if (e.type == SDL_EVENT_RENDER_DEVICE_RESET || e.type == SDL_EVENT_RENDER_TARGETS_RESET) textures_lost(e.type == SDL_EVENT_RENDER_DEVICE_RESET);
@@ -3650,6 +3660,9 @@ int main(int argc, char **argv)
 		}
 	}
 	finish_async(false);
+#if defined(VF2_IOS)
+	SDL_RemoveEventWatch(lifecycle_watch, &lifecycle);
+#endif
 	saver.finish();   // (an autosave still being written, done before the last save: the same files)
 	save_nvram(true);
 	if (cfg_dirty && (quit_after < 0 || test_saves)) save_settings();
