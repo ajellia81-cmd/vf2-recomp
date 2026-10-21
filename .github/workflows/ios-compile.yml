@@ -1,0 +1,63 @@
+name: iOS compile checks (no IPA)
+on:
+  push:
+    branches: [ios-port]
+    paths: ['ios/**', 'src/**', 'third_party/**', '.github/workflows/ios-compile.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ios-compile-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  interpreter:
+    if: github.repository == 'ajellia81-cmd/vf2-recomp'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build ROM-free interpreter tool
+        run: make JIT=0 OBJ=build/obj-interp BIN=build/bin-interp build/bin-interp/vf2run -j2
+      - name: Verify missing-archive diagnostic and absence of SLJIT
+        shell: bash
+        run: |
+          set +e
+          build/bin-interp/vf2run /nonexistent/vf2.zip 1 > build/missing-rom.log 2>&1
+          result=$?
+          set -e
+          test "$result" = 1
+          grep -q "Couldn't read" build/missing-rom.log
+          if nm -C build/bin-interp/vf2run | grep -q sljit_; then exit 1; fi
+  ios:
+    if: github.repository == 'ajellia81-cmd/vf2-recomp'
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install project generator
+        run: brew install xcodegen
+      - name: Prepare redistributable libraries only
+        run: sh ios/Scripts/prepare-dependencies.sh
+      - name: Check dependencies and generate Xcode project
+        run: |
+          sh ios/Scripts/preflight.sh
+          xcodegen generate --spec ios/project.yml
+          python3 ios/Scripts/verify-project.py
+      - name: Compile unsigned iPhone app (no archive or export)
+        run: |
+          xcodebuild -project ios/VF2Recomp.xcodeproj -scheme VF2Recomp \
+            -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
+            -derivedDataPath ios/build/device CODE_SIGNING_ALLOWED=NO build > ios/build/device.log 2>&1 || {
+              tail -120 ios/build/device.log; exit 1;
+            }
+      - name: Compile unsigned simulator app
+        run: |
+          xcodebuild -project ios/VF2Recomp.xcodeproj -scheme VF2Recomp \
+            -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath ios/build/simulator CODE_SIGNING_ALLOWED=NO build > ios/build/simulator.log 2>&1 || {
+              tail -120 ios/build/simulator.log; exit 1;
+            }
+      # Deliberately no archive, -exportArchive, IPA packaging, artifact upload, or release.
