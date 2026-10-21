@@ -1,66 +1,103 @@
-# iOS port scaffold
+# Personal iOS port
 
-This directory is an intentionally ungenerated Xcode project draft.  `project.yml` is the source of truth for XcodeGen; do not commit a generated `.xcodeproj` until the toolchain, dependency packaging, and signing decisions below have been reviewed.
+Work only in `ajellia81-cmd/vf2-recomp`, branch `ios-port`. Upstream
+`mr-finster/vf2-recomp` is read-only. `project.yml` is the source of truth;
+generated Xcode projects, dependencies and build products stay ignored.
 
-No ROM, extracted game data, generated recompilation output, or downloadable game asset is included here.  A user imports their own legal MAME `vf2.zip` through the system document picker. `VF2ROMImport` obtains security-scoped access only for the import, validates the archive with the existing `romset::load`, then atomically copies it into this app's Application Support sandbox. The app does not retain external bookmarks or access unrelated files.
+No ROM, extracted game data or generated game source is included or fetched.
+No IPA has been archived, exported, uploaded or distributed by this preparation.
 
-## Layout
+## Reproduce on a macOS cloud runner
 
-| Path | Purpose |
-| --- | --- |
-| `project.yml`, `Config/*.xcconfig` | Reproducible XcodeGen and build-setting draft |
-| `Sources/VF2ROMImport.mm` | UIKit document-picker import and sandbox copy boundary |
-| `Sources/VF2InputBridge.mm` | GameController and touch-action bridge into the existing `control_action` vocabulary |
-| `../../src/host` | Existing SDL3 host, menu, ROM validation and persistence logic |
-| `../../src/gpu/gpu3d_metal.mm` | Existing Metal 3D renderer; it must share SDL's Metal layer/device |
+Requirements: Xcode with iPhoneOS/iPhoneSimulator SDKs, XcodeGen 2.38+,
+CMake 3.24+, Git and Python 3. No Windows machine or signing secrets are needed
+for dependency preparation or unsigned compilation.
 
-## Execution policy: interpreter only
+```sh
+sh ios/Scripts/prepare-dependencies.sh
+sh ios/Scripts/preflight.sh
+xcodegen generate --spec ios/project.yml
+python3 ios/Scripts/verify-project.py
+```
 
-The normal desktop startup compiler is `src/rec/i960_native.cpp`, which uses SLJIT to emit executable ARM64/x86-64 memory. iOS application processes must not create executable code at runtime. The port therefore sets `VF2_DISABLE_JIT=1` and `JIT=0`:
+The GitHub workflow `.github/workflows/ios-compile.yml` runs these commands,
+checks the ROM-free interpreter tool on Linux, and compiles unsigned Release
+for arm64 iPhoneOS and Debug for arm64 iPhoneSimulator. It does **not** run
+the app, create an archive, export an IPA, upload app artifacts, or publish a
+release. Redistributable static dependency libraries are cached separately.
+Check the workflow result for the exact commit; a source commit is not proof
+of a successful Apple SDK build.
 
-* `model2a` does not call `use_native()` at construction.
-* `model2a::use_native()` is a safe false-returning stub.
-* The existing MAME i960 interpreter (`third_party/mame/i960`) is selected because `i960_device` has no `runtime` attached.
-* Desktop's runtime switch remains `--interp` / `VF2_INTERP=1`; iOS makes that selection compile-time mandatory. `src/rec/i960_rec.cpp` also refuses native regeneration in this mode.
+## Execution and rendering
 
-This is functionally the project's existing reference path, but performance is unmeasured. Do not enable SLJIT or attempt entitlement-based JIT workarounds for a normal iOS distribution.
+`VF2_DISABLE_JIT=1` is mandatory for both configurations. The target excludes
+`i960_native.cpp` and SLJIT and includes `i960_native_stub.cpp`, including its
+runtime teardown boundary. An iOS compile of the native compiler deliberately
+fails. The MAME i960 interpreter is selected without executable-memory
+allocations. Do not enable JIT entitlements or ROM-generated recompilation.
 
-## Proposed ROM import flow
+The existing Metal backend is linked using `VF2_GPU3D_METAL=1` and shares SDL's
+`CAMetalLayer`. CPU 3D is the **initial default**; opt-in GPU and Auto modes need
+on-device output/performance validation. Metal shader compilation through
+Apple's API is separate from CPU JIT execution. Interpreter speed, thermals,
+GPU correctness and sustained audio timing remain unmeasured on iOS.
 
-1. The app presents `UIDocumentPickerViewController` restricted to ZIP archives.
-2. The selected URL is security-scoped only while importing. An `NSFileCoordinator` reads it.
-3. The file is copied to a temporary file under `Library/Application Support/Virtua Fighter 2 Recomp/roms/`.
-4. `romset::load` validates the expected VF2 2.1 file names and CRCs. Failure deletes the temporary file and shows its existing diagnostic.
-5. A successful archive replaces only the sandboxed `vf2.zip`. Existing player saves remain separate in the app support directory.
+## ROM import and storage
 
-The implementation deliberately does not bundle, download, share, or synthesize ROMs.
+On startup the host uses only
+`Library/Application Support/Virtua Fighter 2 Recomp/roms/vf2.zip`.
+If that archive is absent or invalid, a temporary SDL UIKit window presents
+`UIDocumentPickerViewController` for ZIP files. The source URL is accessed only
+during coordinated copying to a unique temporary sandbox file. The existing
+`romset::load` validates names and CRCs; a successful copy atomically replaces
+the sandbox archive. Failed copies/validation are removed and an existing
+archive is preserved on installation failure. No external bookmark is stored.
 
-## Input design
+Saves, configuration and logs use the same Application Support app directory,
+separate from `roms/`. Desktop portable mode and external ROM-folder settings
+do not redirect iOS persistence. User-imported archives never enter CI.
 
-`VF2InputBridge` translates `GCController` callbacks and a future UIKit overlay into `control_action` values already used by `src/host/controls.h`: direction, Guard, Punch, Kick, combinations, Start, Coin, and Menu. SDL3 continues to own the host event loop and window. The next integration step is to merge `VF2InputSnapshot` into the per-frame input sampling in `src/host/main.cpp`, so physical controllers and touch controls can coexist without inventing a second game-input format.
+## Input and lifecycle
 
-Recommended virtual layout: left-side four-way directional pad; right-side Guard/Punch/Kick triangle; top-right Start/Menu; optional combined buttons for accessibility. Touch controls must be rendered above the SDL content and respect safe-area insets, orientation, pause/menu state, and accessibility scaling.
+SDL owns the window, event pump, renderer, audio and menu navigation.
+`VF2InputBridge` polls GameController on the main thread, maintains two stable
+controller slots and merges physical inputs with a UIKit touch overlay. The
+host samples it every outer loop, including while the game menu is paused.
+SDL handles menu navigation; it does not duplicate GCController game inputs.
 
-## Rendering/window boundary
+Default controller mapping: D-pad/left stick move; X/A/B = Guard/Punch/Kick;
+Y = Guard+Punch; LB/LT = Guard+Kick; RB = Punch+Kick; RT = all three;
+Menu = Start; Options = game menu. The touch overlay supplies directions,
+Guard/Punch/Kick, Start, Coin and Menu. Controls respect window safe-area
+insets; unused overlay space passes touches to SDL, and only Menu remains
+visible while the game menu is open. Accessibility scaling and comprehensive
+controller remapping still need device review.
 
-SDL3 should create the iOS window and own lifecycle events. Request its Metal renderer, retrieve the same `CAMetalLayer` with `SDL_GetRenderMetalLayer`, and pass it to the existing `gpu3d_create_metal_layer`; this is already the Apple path in `src/host/main.cpp`. Do not create a competing `MTKView` or Metal command queue. Start with the CPU renderer fallback enabled; enable GPU 3D only after device testing confirms the shared-layer path.
+Lifecycle event watches pause audio/emulation, clear held touch inputs and
+audio queues, flush pending writes and save current NVRAM/settings before
+UIKit suspension. Foreground recovery resets the frame clock and resumes
+audio according to menu state. Actual interruption and route-change behavior
+must still be tested on an iPhone.
 
-## Prerequisites before the first build (not performed in this change)
+## Staged completion plan
 
-* macOS with current Xcode, iOS SDK, XcodeGen, and a device/simulator runtime.
-* SDL3 built as an iOS XCFramework and FreeType packaged for `arm64` device and simulator slices (or equivalent Swift Package/CocoaPods integration).
-* A bundle identifier, development team, provisioning profile, and a physical device for GameController/document-picker validation. Simulator results are insufficient for controller and Metal performance.
-* App icon, launch/splash policy, privacy manifest, export-compliance review, and third-party license/attribution review.
+| Gate | Repository preparation | Required evidence |
+| --- | --- | --- |
+| 1. Interpreter core | Native compiler excluded; ROM-free Linux tool/checks | Successful Linux build; missing-ROM diagnostic; no SLJIT symbols |
+| 2. Apple compilation | Pinned static dependencies, source/resource audit, unsigned device/simulator workflow | Green jobs on the current branch head |
+| 3. Device behavior | Import, persistence, touch/GCController, lifecycle and Metal boundary connected | User-owned archive tested on an actual device; no ROM sent to CI |
+| 4. Personal packaging | Bundle ID `com.ajellia81.vf2recomp`; signing unset | Select personal signing method; include notices; explicit authorization before IPA generation |
 
-## Verification plan (not run)
+A compilation pass establishes only gate 2. Do not claim working gameplay,
+device performance or a verified IPA-ready build before the corresponding
+evidence exists. Device validation includes bad-CRC import preserving prior
+data, source-provider access revocation, two-controller disconnect/reconnect,
+multitouch, menu gestures, rotation, background/relaunch and audio recovery.
 
-1. Generate the project from `project.yml`; inspect the resulting signing, architectures, framework and `JIT=0` settings.
-2. Build/run on an arm64 device, import a known-valid user-owned archive, then confirm bad/missing CRC input leaves no archive behind.
-3. Confirm app relaunch finds only the sandbox copy; revoke access to the source file and verify the game still launches.
-4. Test GameController connect/disconnect and touch actions, including two simultaneous directions/buttons and focus loss.
-5. Compare interpreter frames/audio/save behavior with the project's desktop `--interp` reference; test Metal GPU output against CPU fallback before enabling Auto/GPU.
-6. Profile sustained play for thermal, memory, audio underruns, background/foreground recovery and orientation changes.
+## Cloud continuity
 
-## Known risks
-
-Interpreter performance may be below real-time; the SDL3 iOS packaging and SDL renderer/Metal-layer property names need confirmation against the selected SDL release; RmlUi's SDL backend needs touch/text-input checks; and the current desktop file-picker/UI messaging must be bypassed in favor of UIKit on iOS.
+Commits and GitHub Actions checks persist independently of the user's PC.
+This chat's remote workspace is not itself a published Codex Cloud environment
+or a registered Codex Cloud task. For a separate Codex Cloud task, select the
+personal repository and `ios-port` from a published environment, read
+`AGENTS.md`, and continue from the branch head without touching upstream.
