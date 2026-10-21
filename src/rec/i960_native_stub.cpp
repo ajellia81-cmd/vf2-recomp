@@ -4,6 +4,9 @@
 
 namespace i960rec {
 
+// No native allocation can exist in this build. The runtime destructor still links here.
+void free_native(void *) {}
+
 bool build_native(runtime &, uint32_t (*)(void *, uint32_t), void *, uint32_t,
 	const hints &, native_stats *stats)
 {
