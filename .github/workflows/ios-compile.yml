@@ -8,7 +8,7 @@ permissions:
   contents: read
 concurrency:
   group: ios-compile-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 jobs:
   interpreter:
     if: github.repository == 'ajellia81-cmd/vf2-recomp'
@@ -39,10 +39,29 @@ jobs:
           persist-credentials: false
       - name: Install project generator
         run: brew install xcodegen
+      - name: Identify Apple toolchain
+        id: toolchain
+        run: echo "key=$(xcodebuild -version | shasum -a 256 | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@v4
+        id: dependencies
+        with:
+          path: |
+            ios/Dependencies/*.xcframework
+            ios/build/licenses
+          key: ios-static-${{ runner.os }}-${{ steps.toolchain.outputs.key }}-${{ hashFiles('ios/Dependencies/versions.env', 'ios/Scripts/prepare-dependencies.sh') }}
       - name: Prepare redistributable libraries only
+        if: steps.dependencies.outputs.cache-hit != 'true'
         run: sh ios/Scripts/prepare-dependencies.sh
+      - uses: actions/cache/save@v4
+        if: steps.dependencies.outputs.cache-hit != 'true'
+        with:
+          path: |
+            ios/Dependencies/*.xcframework
+            ios/build/licenses
+          key: ${{ steps.dependencies.outputs.cache-primary-key }}
       - name: Check dependencies and generate Xcode project
         run: |
+          mkdir -p ios/build
           sh ios/Scripts/preflight.sh
           xcodegen generate --spec ios/project.yml
           python3 ios/Scripts/verify-project.py
