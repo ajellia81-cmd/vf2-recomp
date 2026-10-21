@@ -15,10 +15,14 @@ targets:
       - path: ../src
         excludes:
           - gpu/gpu3d_sdlgpu.cpp
+          - gpu/gpu3d.hlsl
           - rec/i960_native.cpp
       - path: ../third_party/mame/i960
       - path: ../third_party/mame/m68000
       - path: ../third_party/rmlui/Source/Core
+        excludes:
+          - CMakeLists.txt
+          - "**/CMakeLists.txt"
       - path: ../third_party/rmlui/Backends
       - path: ../assets
         type: folder

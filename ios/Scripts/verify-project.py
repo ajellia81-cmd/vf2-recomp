@@ -22,7 +22,7 @@ sources = files('PBXSourcesBuildPhase')
 for required in ['main.cpp', 'i960_native_stub.cpp', 'gen_none.cpp', 'd3d11_map.cpp',
                  'VF2Platform.mm', 'VF2ROMImport.mm', 'VF2InputBridge.mm', 'gpu3d_metal.mm']:
     assert sources.count(required) == 1, (required, sources.count(required))
-for forbidden in ['i960_native.cpp', 'sljitLir.c', 'gpu3d_sdlgpu.cpp']:
+for forbidden in ['i960_native.cpp', 'sljitLir.c', 'gpu3d_sdlgpu.cpp', 'gpu3d.hlsl', 'CMakeLists.txt']:
     assert forbidden not in sources, forbidden
 assert 'assets' in files('PBXResourcesBuildPhase'), 'Missing bundled menu/fonts/backgrounds'
 for name in ['Debug.xcconfig', 'Release.xcconfig']:
