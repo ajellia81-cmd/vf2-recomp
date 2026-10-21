@@ -152,6 +152,7 @@
 #include "controls.h"
 #if defined(VF2_IOS)
 #include "ios_input.h"
+#include "ios_platform.h"
 #endif
 #include "sysinfo.h"
 #include <SDL3/SDL.h>
@@ -501,7 +502,7 @@ struct bg_saver {
 	std::mutex mx;
 	std::condition_variable cv;
 	std::map<std::string, std::vector<uint8_t>> jobs;
-	bool stop = false;
+	bool stop = false, writing = false;
 	std::thread th{ [this] { run(); } };
 	void put(const std::string &path, const void *src, size_t n) {
 		{ std::lock_guard<std::mutex> l(mx); if (stop) return; jobs[path].assign(static_cast<const uint8_t *>(src), static_cast<const uint8_t *>(src) + n); }
@@ -512,13 +513,20 @@ struct bg_saver {
 		for (;;) {
 			cv.wait(l, [&] { return stop || !jobs.empty(); });
 			if (jobs.empty()) return;   // (stop, nothing left)
+			writing = true;
 			auto todo = std::move(jobs);
 			jobs.clear();
 			l.unlock();
 			for (auto &[path, bytes] : todo)
 				if (!save_blob(path, bytes.data(), bytes.size())) fprintf(stderr, "couldn't save %s\n", path.c_str());
 			l.lock();
+			writing = false;
+			cv.notify_all();
 		}
+	}
+	void flush() {
+		std::unique_lock<std::mutex> l(mx);
+		cv.wait(l, [&] { return jobs.empty() && !writing; });
 	}
 	void finish() {
 		{ std::lock_guard<std::mutex> l(mx); stop = true; }
@@ -666,6 +674,15 @@ struct settings
 // picker then is copied into the ROM folder (where the next start looks), not the data folder.
 bool first_launch(const std::string &data, const std::string &folder, romset::result &out)
 {
+#if defined(VF2_IOS)
+	const std::string archive = data + "/roms/vf2.zip";
+	out = romset::load(archive);
+	if (out.ok) return true;
+	const std::string imported = ios_import_rom();
+	if (imported.empty()) { fprintf(stderr, "ROM import: %s\n", SDL_GetError()); return false; }
+	out = romset::load(imported);
+	return out.ok;
+#else
 	namespace fs = std::filesystem;
 	const fs::path own = fs::path(data) / "roms";
 	const fs::path roms = folder.empty() ? own : fs::path(folder), zip = roms / "vf2.zip";
@@ -741,6 +758,7 @@ bool first_launch(const std::string &data, const std::string &folder, romset::re
 		out = std::move(r);
 		return true;
 	}
+#endif
 }
 
 } // namespace
@@ -834,6 +852,11 @@ int main(int argc, char **argv)
 		// (no separator at the end, but for a drive's root)
 		while (data.size() > 1 && (data.back() == '/' || data.back() == '\\') && data[data.size() - 2] != ':') data.pop_back();
 	}
+#if defined(VF2_IOS)
+	data = ios_data_directory();
+	zip.clear();
+	players = true;
+#endif
 	if (data.empty()) data = (std::filesystem::path(zip).parent_path() / "vf2_data").string();
 	if (data.empty()) data = "vf2_data";
 	// Without a console (started from the Finder, a launcher), the messages go to log.txt there,
@@ -890,6 +913,9 @@ int main(int argc, char **argv)
 		roms = romset::load(zip);
 		if (!roms.ok) return fail(roms.error);
 	}
+#if defined(VF2_IOS)
+	if (!SDL_Init(SDL_INIT_VIDEO)) return fail(SDL_GetError());
+#endif
 	model2a m(std::move(roms));   // (recompiles the i960's program, unless VF2_INTERP)
 	if (arg_interp) m.use_interpreter();
 	if (m.recompiled()) {
@@ -995,6 +1021,9 @@ int main(int argc, char **argv)
 			m.run_frame();
 			m.m_audio_out.clear();
 			game_frame++;
+#if defined(VF2_IOS)
+			SDL_PumpEvents();
+#endif
 		}
 	};
 	const auto boot_t = std::chrono::steady_clock::now();
@@ -1027,7 +1056,7 @@ int main(int argc, char **argv)
 	if (!win) return fail(std::string("Couldn't open the window: ") + SDL_GetError());
 	// The UIKit overlay is optional input only; SDL continues to own the game window.
 #if defined(VF2_IOS)
-	ios_input_install();
+	ios_input_install(win);
 #endif
 	SDL_HideCursor();
 	int focus_checks = 600;   // about 5 s: going fullscreen on a Mac moves to a new Space, which takes a while
@@ -2584,9 +2613,16 @@ int main(int argc, char **argv)
 	// the menu pauses the game and its sound: however it opened (Esc, the pad's View, the frames'
 	// hotkey) or closed, the sound device follows at once (its queue doesn't drain meanwhile)
 	bool sound_paused = false;
+#if defined(VF2_IOS)
+	bool ios_background = false;
+#endif
 	auto sync_menu_sound = [&] {
-		if (!audio || menu.is_open() == sound_paused) return;
-		sound_paused = menu.is_open();
+		bool want_pause = menu.is_open();
+#if defined(VF2_IOS)
+		want_pause = want_pause || ios_background;
+#endif
+		if (!audio || want_pause == sound_paused) return;
+		sound_paused = want_pause;
 		if (sound_paused) SDL_PauseAudioStreamDevice(audio); else SDL_ResumeAudioStreamDevice(audio);
 	};
 	auto open_menu = [&] { if (menu.ready() && !menu.is_open()) menu.open(main_page()); sync_menu_sound(); };
@@ -2761,9 +2797,36 @@ int main(int argc, char **argv)
 		if (pass > 0) pad_hooks(pass);
 		for (int64_t at : resets_at)
 			if (at == pass) { SDL_Event r{}; r.type = SDL_EVENT_RENDER_DEVICE_RESET; SDL_PushEvent(&r); }
-		SDL_Event e;
 		const bool menu_was_open = menu.is_open();
+#if defined(VF2_IOS)
+		ios_input_snapshot ios = ios_input_read();
+		if (ios.menu_pressed) { if (menu.is_open()) menu.close(); else open_menu(); }
+		ios.menu_pressed = false;
+		ios_input_set_menu(menu.is_open());
+#endif
+		SDL_Event e;
 		while (SDL_PollEvent(&e)) {
+#if defined(VF2_IOS)
+			// GCController owns Options/Menu; don't toggle it twice via SDL's Back event.
+			if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && e.gbutton.button == SDL_GAMEPAD_BUTTON_BACK) continue;
+			if (e.type == SDL_EVENT_WILL_ENTER_BACKGROUND) {
+				ios_background = true;
+				ios_input_reset();
+				saver.flush();
+				save_nvram(true);
+				if (cfg_dirty && save_settings()) cfg_dirty = false;
+				if (audio) SDL_ClearAudioStream(audio);
+				sync_menu_sound();
+				continue;
+			}
+			if (e.type == SDL_EVENT_DID_ENTER_FOREGROUND) {
+				ios_background = false;
+				ios_input_reset();
+				restart_clock();
+				sync_menu_sound();
+				continue;
+			}
+#endif
 			if (e.type == SDL_EVENT_QUIT) running = false;
 			else if (e.type == SDL_EVENT_RENDER_DEVICE_RESET || e.type == SDL_EVENT_RENDER_TARGETS_RESET) textures_lost(e.type == SDL_EVENT_RENDER_DEVICE_RESET);
 			else if (e.type == SDL_EVENT_RENDER_DEVICE_LOST) { fprintf(stderr, "the graphics device was lost: closing\n"); running = false; }
@@ -2824,6 +2887,9 @@ int main(int argc, char **argv)
 			for (pad_state &s : pstate) s.menu_was = s.touch_was = s.sticks_was = true;
 			restart_clock();
 		}
+#if defined(VF2_IOS)
+		if (ios_background) { SDL_Delay(30); continue; }
+#endif
 		const bool stopped = paused || menu.is_open();
 		int due = 0;
 		bool draw_into_texture = false;   // the newest frame, drawn straight into the texture after the frames
@@ -2915,10 +2981,12 @@ int main(int argc, char **argv)
 			uint8_t ports[input_script::N_PORTS];
 			script.apply(game_frame, ports);
 			uint8_t live[3];
-			#if defined(VF2_IOS)
-			ios_input_snapshot ios = ios_input_read();
-			#endif
-			const hotkey hk = read_inputs(m, pads, pstate, cfg.ctl, live
+#if defined(VF2_IOS)
+			SDL_Gamepad *game_pads[2]{}; // GCController owns game input; SDL still handles menu navigation.
+#else
+			SDL_Gamepad **game_pads = pads;
+#endif
+			const hotkey hk = read_inputs(m, game_pads, pstate, cfg.ctl, live
 #if defined(VF2_IOS)
 				, &ios
 #endif
@@ -3584,6 +3652,9 @@ int main(int argc, char **argv)
 	for (auto &[id, j] : vpads) { if (j) SDL_CloseJoystick(j); SDL_DetachVirtualJoystick(id); }
 	g3_free();
 	g3.dev.reset();   // (the GPU's 3D before the renderer whose device it may share)
+#if defined(VF2_IOS)
+	ios_input_uninstall();
+#endif
 	SDL_Quit();
 	return 0;
 }

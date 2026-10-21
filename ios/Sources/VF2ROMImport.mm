@@ -36,10 +36,11 @@
 - (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls
 {
 	NSURL *source = urls.firstObject;
-	if (!source || ![source startAccessingSecurityScopedResource]) {
+	if (!source) {
 		self.completion(nil, @"The selected archive could not be accessed.");
 		return;
 	}
+	const BOOL scoped = [source startAccessingSecurityScopedResource];
 	__block NSError *copyError = nil;
 	__block NSURL *temporary = nil;
 	NSFileCoordinator *coordinator = [NSFileCoordinator new];
@@ -48,12 +49,13 @@
 		[[NSFileManager defaultManager] createDirectoryAtURL:[destination URLByDeletingLastPathComponent]
 			withIntermediateDirectories:YES attributes:nil error:&copyError];
 		if (copyError) return;
-		temporary = [[destination URLByDeletingLastPathComponent] URLByAppendingPathComponent:@"vf2.importing.zip"];
+		temporary = [[destination URLByDeletingLastPathComponent] URLByAppendingPathComponent:[NSUUID.UUID.UUIDString stringByAppendingString:@".zip"]];
 		[[NSFileManager defaultManager] removeItemAtURL:temporary error:nil];
 		[[NSFileManager defaultManager] copyItemAtURL:readURL toURL:temporary error:&copyError];
 	}];
-	[source stopAccessingSecurityScopedResource];
+	if (scoped) [source stopAccessingSecurityScopedResource];
 	if (copyError || !temporary) {
+		if (temporary) [[NSFileManager defaultManager] removeItemAtURL:temporary error:nil];
 		self.completion(nil, copyError.localizedDescription ?: @"The archive could not be copied.");
 		return;
 	}
@@ -64,8 +66,14 @@
 		return;
 	}
 	NSURL *destination = [VF2ROMImport sandboxROMURL];
-	[[NSFileManager defaultManager] removeItemAtURL:destination error:nil];
-	if (![[NSFileManager defaultManager] moveItemAtURL:temporary toURL:destination error:&copyError]) {
+	NSFileManager *manager = NSFileManager.defaultManager;
+	BOOL installed;
+	if ([manager fileExistsAtPath:destination.path])
+		installed = [manager replaceItemAtURL:destination withItemAtURL:temporary backupItemName:nil
+			options:0 resultingItemURL:nil error:&copyError];
+	else installed = [manager moveItemAtURL:temporary toURL:destination error:&copyError];
+	if (!installed) {
+		[manager removeItemAtURL:temporary error:nil];
 		self.completion(nil, copyError.localizedDescription);
 		return;
 	}
