@@ -30,3 +30,7 @@ for name in ['Debug.xcconfig', 'Release.xcconfig']:
 assert 'VF2_DISABLE_JIT=1' in (root / 'Config/Debug.xcconfig').read_text()
 assert 'Debug.xcconfig' in (root / 'Config/Release.xcconfig').read_text()
 print('Generated source selection, resource copy and interpreter configuration: OK')
+
+for config in (root / 'Config').glob('*.xcconfig'):
+    for number, line in enumerate(config.read_text().splitlines(), 1):
+        assert not line.lstrip().startswith('#') or line.lstrip().startswith('#include '), (config.name, number)

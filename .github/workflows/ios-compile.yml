@@ -70,13 +70,15 @@ jobs:
           xcodebuild -project ios/VF2Recomp.xcodeproj -scheme VF2Recomp \
             -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
             -derivedDataPath ios/build/device CODE_SIGNING_ALLOWED=NO build > ios/build/device.log 2>&1 || {
-              tail -120 ios/build/device.log; exit 1;
+              grep -n -m 40 "error:" ios/build/device.log || true
+              tail -80 ios/build/device.log; exit 1;
             }
       - name: Compile unsigned simulator app
         run: |
           xcodebuild -project ios/VF2Recomp.xcodeproj -scheme VF2Recomp \
             -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath ios/build/simulator CODE_SIGNING_ALLOWED=NO build > ios/build/simulator.log 2>&1 || {
-              tail -120 ios/build/simulator.log; exit 1;
+              grep -n -m 40 "error:" ios/build/simulator.log || true
+              tail -80 ios/build/simulator.log; exit 1;
             }
       # Deliberately no archive, -exportArchive, IPA packaging, artifact upload, or release.

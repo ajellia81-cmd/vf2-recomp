@@ -1,4 +1,4 @@
-# Same execution policy in release builds; desktop's SLJIT path is not permitted on iOS.
+// Same execution policy in release builds; desktop's SLJIT path is not permitted on iOS.
 #include "Debug.xcconfig"
 GCC_OPTIMIZATION_LEVEL = s
 DEBUG_INFORMATION_FORMAT = dwarf-with-dsym
