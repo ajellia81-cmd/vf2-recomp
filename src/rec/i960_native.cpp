@@ -1,3 +1,6 @@
+#if defined(VF2_IOS)
+#error "The native compiler must never be compiled into an iOS target"
+#endif
 // The native recompile (see i960_native.h). The whole program is one piece of code: a label at
 // every instruction, entered at the one for IP, the flow between instructions as native jumps
 // (into another function's code too: they share one frame), and back to the runtime's loop when
