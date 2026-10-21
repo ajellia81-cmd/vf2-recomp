@@ -82,6 +82,6 @@
 
 - (void)documentPickerWasCancelled:(UIDocumentPickerViewController *)controller
 {
-	self.completion(nil, @"ROM import was cancelled.");
+	self.completion(nil, nil);
 }
 @end

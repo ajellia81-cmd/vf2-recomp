@@ -22,19 +22,36 @@ std::string ios_import_rom()
 		SDL_DestroyWindow(window);
 		return {};
 	}
-	__block bool done = false;
-	__block std::string path;
-	[VF2ROMImport presentFrom:presenter completion:^(NSURL *url, NSString *error) {
-		if (url) path = url.path.UTF8String;
-		if (error) SDL_SetError("%s", error.UTF8String);
-		[presenter dismissViewControllerAnimated:NO completion:^{ done = true; }];
-	}];
-	// SDL's iOS event pump services UIKit on this main thread, including document providers.
-	// Do not return while the picker completion still references this stack frame.
-	while (!done) {
-		SDL_PumpEvents();
-		SDL_Delay(10);
+	std::string result;
+	bool retry = true;
+	while (retry) {
+		__block bool done = false;
+		__block bool again = false;
+		__block std::string selected;
+		[VF2ROMImport presentFrom:presenter completion:^(NSURL *url, NSString *error) {
+			if (url) selected = url.path.UTF8String;
+			if (error) SDL_SetError("%s", error.UTF8String);
+			[presenter dismissViewControllerAnimated:NO completion:^{
+				if (!error) { done = true; return; }
+				UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Unable to import archive"
+					message:error preferredStyle:UIAlertControllerStyleAlert];
+				[alert addAction:[UIAlertAction actionWithTitle:@"Choose another file" style:UIAlertActionStyleDefault
+					handler:^(UIAlertAction *) { again = true; [presenter dismissViewControllerAnimated:NO completion:^{ done = true; }]; }]];
+				[alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel
+					handler:^(UIAlertAction *) { [presenter dismissViewControllerAnimated:NO completion:^{ done = true; }]; }]];
+				[presenter presentViewController:alert animated:YES completion:nil];
+			}];
+		}];
+		// SDL's iOS event pump services UIKit on this main thread, including document providers.
+		// Keep the window and block state alive until import/error handling is complete.
+		while (!done) {
+			SDL_PumpEvents();
+			SDL_Delay(10);
+		}
+		result = selected;
+		retry = again;
 	}
+
 	SDL_DestroyWindow(window);
-	return path;
+	return result;
 }
