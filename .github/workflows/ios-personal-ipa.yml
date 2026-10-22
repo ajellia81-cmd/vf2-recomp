@@ -1,0 +1,76 @@
+name: Personal unsigned iOS IPA
+on:
+  push:
+    branches: [ios-port]
+    paths: ['.github/workflows/ios-personal-ipa.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: personal-ipa-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  ios:
+    if: github.repository == 'ajellia81-cmd/vf2-recomp'
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install project generator
+        run: brew install xcodegen
+      - name: Identify Apple toolchain
+        id: toolchain
+        run: echo "key=$(xcodebuild -version | shasum -a 256 | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@v4
+        id: dependencies
+        with:
+          path: |
+            ios/Dependencies/*.xcframework
+            ios/build/licenses
+          key: ios-static-${{ runner.os }}-${{ steps.toolchain.outputs.key }}-${{ hashFiles('ios/Dependencies/versions.env', 'ios/Scripts/prepare-dependencies.sh') }}
+      - name: Prepare redistributable libraries only
+        if: steps.dependencies.outputs.cache-hit != 'true'
+        run: sh ios/Scripts/prepare-dependencies.sh
+      - uses: actions/cache/save@v4
+        if: steps.dependencies.outputs.cache-hit != 'true'
+        with:
+          path: |
+            ios/Dependencies/*.xcframework
+            ios/build/licenses
+          key: ${{ steps.dependencies.outputs.cache-primary-key }}
+      - name: Test native Metal rasterization with synthetic geometry
+        shell: bash
+        run: |
+          mkdir -p ios/build
+          xcrun clang++ -std=c++20 -O2 -fobjc-arc tools/checks/metal_native_grid.mm src/gpu/gpu3d_metal.mm \
+            -framework Metal -framework Foundation -framework CoreVideo -framework QuartzCore -o ios/build/metal-native-grid
+          set +e
+          ios/build/metal-native-grid
+          result=$?
+          set -e
+          if [ "$result" = 77 ]; then echo 'Metal runtime test skipped: inspect the message above.'; else exit "$result"; fi
+      - name: Check dependencies and generate Xcode project
+        run: |
+          mkdir -p ios/build
+          sh ios/Scripts/preflight.sh
+          xcodegen generate --spec ios/project.yml
+          python3 ios/Scripts/verify-project.py
+      - name: Compile unsigned iPhone app (no archive or export)
+        run: |
+          xcodebuild -project ios/VF2Recomp.xcodeproj -scheme VF2Recomp \
+            -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
+            -derivedDataPath ios/build/device CODE_SIGNING_ALLOWED=NO build > ios/build/device.log 2>&1 || {
+              grep -n -m 40 "error:" ios/build/device.log || true
+              tail -80 ios/build/device.log; exit 1;
+            }
+      - name: Package personal unsigned IPA without ROMs
+        run: python3 ios/Scripts/package-personal-ipa.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VF2Recomp-personal-unsigned-${{ github.sha }}
+          path: ios/build/personal/VF2Recomp-2868x1320-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0

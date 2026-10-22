@@ -5,7 +5,8 @@ Work only in `ajellia81-cmd/vf2-recomp`, branch `ios-port`. Upstream
 generated Xcode projects, dependencies and build products stay ignored.
 
 No ROM, extracted game data or generated game source is included or fetched.
-No IPA has been archived, exported, uploaded or distributed by this preparation.
+The compile-check workflow never packages an IPA. Personal IPA packaging is a
+separate, explicitly authorized workflow described below.
 
 ## Reproduce on a macOS cloud runner
 
@@ -27,6 +28,21 @@ the app, create an archive, export an IPA, upload app artifacts, or publish a
 release. Redistributable static dependency libraries are cached separately.
 Check the workflow result for the exact commit; a source commit is not proof
 of a successful Apple SDK build.
+
+## Personal unsigned IPA
+
+The user authorized personal IPA creation on 2026-10-22. The separate workflow
+`.github/workflows/ios-personal-ipa.yml` builds Release for arm64 iPhoneOS,
+checks interpreter-only symbols and device platform, adds dependency notices,
+and packages the app under `Payload/` without ROMs or signing credentials.
+It runs manually or when its own workflow file changes on `ios-port`, only in
+the personal fork. The artifact expires after three days; no release is published.
+
+The resulting `VF2Recomp-2868x1320-unsigned.ipa` requires personal re-signing
+before installation. It contains no provisioning profile and no JIT entitlement.
+The source commit is recorded inside `BUILD-INFO.json`. Packaging does not prove
+working gameplay or device performance. The original compile-only workflow
+remains separate and does not upload applications.
 
 ## Execution and rendering
 
