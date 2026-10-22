@@ -170,3 +170,31 @@ interpreter checks, two import XCTest cases, device/simulator compilation and
 IPA metadata/hash checks passed. Downloaded IPA ZIP integrity, version 6,
 high-refresh flag and source identity were verified. Interpreter-only execution
 and ROM-free packaging remain in effect. This is unsigned for personal signing.
+
+## Explicit Quit terminates after cleanup (build 7)
+
+- Source: `0b08ef409df576078dcb6138f7d7b05ee9b7a768`.
+- Successful packaging/tests: https://github.com/ajellia81-cmd/vf2-recomp/actions/runs/39775179652
+- Successful device/simulator compile checks: https://github.com/ajellia81-cmd/vf2-recomp/actions/runs/39775179641
+- Output: `VirtuaFighter2-build7-unsigned.ipa` (6,134,500 bytes).
+- SHA-256: `640232be535c3729ef99826f79d3b2c861e73faf9a06341e4c716017d1bde055`.
+
+SDL 3.4.2's UIKit delegate deliberately keeps UIApplication running after the
+user main function returns, leaving a black window after the host quits.
+Explicit menu Quit now records intent, returns through the normal shutdown
+path (worker joins, completed saves, graphics/input/SDL teardown and local
+object destruction), then calls std::exit with the resulting status on iOS.
+Other returns, such as import cancellation, retain their existing behavior.
+
+The user runs the app through LiveContainer. Its current upstream bootstrap
+invokes the guest entry point inside its execution process; terminating that
+process can also close the container execution screen. Returning directly to
+LiveContainer's app list is not promised. Neither standalone nor LiveContainer
+Quit has been exercised on a physical iPhone by this build workflow.
+Reference inspected: https://github.com/LiveContainer/LiveContainer/blob/9108ae624ea001f7d7696d48407f890b48fa2653/LiveContainer/LCBootstrap.m
+
+Apple device/simulator compilation, ROM-free interpreter checks, exact/fast
+Metal tests, composition/filter/brightness tests, controls persistence and two
+import XCTest cases passed. Downloaded IPA ZIP/hash, build number and source
+metadata match the successful runner output. No ROM data was used or included;
+iOS execution remains interpreter-only. The IPA is unsigned for personal use.
