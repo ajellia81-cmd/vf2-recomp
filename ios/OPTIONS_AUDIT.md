@@ -1,4 +1,4 @@
-# iOS options audit — build 6
+# iOS options audit — build 7
 
 The user reported that build 5 fixes cold-launch picture clipping/UI enlargement.
 This audit covers every menu category. “Source checked” means callbacks, value
@@ -9,7 +9,7 @@ was obtained. The following device-specific behavior still needs an iPhone run.
 | Category / item | Application and persistence checked | Changes / validation |
 | --- | --- | --- |
 | Main: Resume / Back | Menu close/pop and input/audio state reset | Source checked |
-| Main: Quit | Stops loop, saves NVRAM and changed host settings | Source checked; iOS suspension is not a guaranteed process-exit callback |
+| Main: Quit | Stops loop, joins workers, saves NVRAM/settings, shuts down SDL and destroys host locals, then exits the iOS process | Fixed black screen: SDL UIKit intentionally keeps UIApplication alive after SDL_main returns. Explicit Quit now exits only after normal cleanup; device confirmation remains |
 | Display: Resolution | 1x–6x and native target; pending work finishes before recreation; `ios_resolution` saved | Existing actual Metal target/switch/recreation tests |
 | Display: GPU quality | Changes Metal Exact/Fast immediately; `gpu_quality` saved | Synthetic geometry tested in both modes |
 | Display: Background filter | Backdrop flag, redraw, linear/nearest texture sampling; `background_filter` saved | Removed erroneous `scale > 1` gate at native output; checkerboard Off/Smooth/Off pixel test |

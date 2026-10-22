@@ -163,6 +163,7 @@
 #include <pthread.h>
 #endif
 #if defined(_WIN32) || defined(VF2_IOS)
+#include <cstdlib>
 #include <SDL3/SDL_main.h>   // WinMain, and argv as UTF-8
 #endif
 #include <algorithm>
@@ -778,7 +779,7 @@ bool first_launch(const std::string &data, const std::string &folder, romset::re
 
 } // namespace
 
-int main(int argc, char **argv)
+static int run_game(int argc, char **argv, bool &quit_application)
 {
 #ifdef __APPLE__
 	// the game, its drawing and its sound on the performance cores: without it an M-series Mac can put
@@ -2646,7 +2647,7 @@ int main(int argc, char **argv)
 							[&] { menu.push(arcade_page()); } });
 		p.items.push_back({ "Controls", "Each player's controller, keys and buttons.", {}, {}, [&] { menu.push(controls_page()); } });
 		p.items.push_back({ "Cheats", "Play as Dural, or as MUE or KOJAC, unused fighters left in the game. Changing it restarts the game.", {}, {}, [&] { menu.push(cheats_page()); } });
-		p.items.push_back({ "Quit", "Saves and closes the game.", {}, {}, [&] { running = false; } });
+		p.items.push_back({ "Quit", "Saves and closes the game.", {}, {}, [&] { quit_application = true; running = false; } });
 		return p;
 	};
 	// the menu pauses the game and its sound: however it opened (Esc, the pad's View, the frames'
@@ -3730,4 +3731,17 @@ int main(int argc, char **argv)
 	gpu_pic.free();
 	SDL_Quit();
 	return native_video_error ? 1 : 0;
+}
+
+int main(int argc, char **argv)
+{
+	bool quit_application = false;
+	const int status = run_game(argc, argv, quit_application);
+#if defined(VF2_IOS)
+	// SDL's UIKit delegate keeps UIApplication running after SDL_main returns.
+	// Only an explicit Quit ends the personal app, after saves, worker joins,
+	// SDL shutdown and all run_game local destructors have completed.
+	if (quit_application) std::exit(status);
+#endif
+	return status;
 }
