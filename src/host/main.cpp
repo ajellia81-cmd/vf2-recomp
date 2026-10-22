@@ -2416,9 +2416,11 @@ int main(int argc, char **argv)
 		p.items.push_back({ "Show FPS", "Shows the frame rate in the top right corner.",
 			[&] { return on_off(cfg.show_fps); },
 			[&](int) { cfg.show_fps = !cfg.show_fps; cfg_dirty = true; if (!cfg.show_fps) menu.set_fps(""); } });
+#if !defined(VF2_IOS)
 		p.items.push_back({ "Fullscreen", "Play fullscreen or in a window. (F11, F or Alt+Enter)",
 			[&] { return on_off(SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN); },
 			[&](int) { set_fullscreen(!(SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN)); } });
+#endif
 		p.items.push_back(back_item());
 		return p;
 	};
@@ -3186,7 +3188,7 @@ int main(int argc, char **argv)
 			}
 		}
 #if defined(VF2_IOS)
-		if (m.wide_frame() && !gpu.shown && !g3.pending) draw_into_texture = true;
+		if (m.wide_frame() && last_shown && (!gpu.shown || !gpu.native) && !g3.pending) draw_into_texture = true;
 #endif
 		// the 3D on the GPU (see gpu3d_state), the 2D's parts put together around it (gpu_picture)
 		if (draw_into_texture && g3.on && !g3.failed && g3_targets(m.width() * scale, model2a::HEIGHT * scale) && gpu_pic.ready(m.width(), scale)) {
@@ -3377,7 +3379,7 @@ int main(int argc, char **argv)
 			fps_since = now;
 		}
 #if defined(VF2_IOS)
-		if (native_video_error || (m.wide_frame() && (!gpu.shown || !gpu.native))) {
+		if (native_video_error || (m.wide_frame() && last_shown && (!gpu.shown || !gpu.native))) {
 			if (!native_video_error && g3.pending) { SDL_Delay(1); continue; }
 			native_video_error = true;
 			message_box(SDL_MESSAGEBOX_ERROR, "Native rendering unavailable", "The 2868 x 1320 battle frame could not be rendered. See log.txt.");
