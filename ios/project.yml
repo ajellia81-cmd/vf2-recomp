@@ -68,3 +68,28 @@ targets:
     scheme:
       gatherCoverageData: false
       buildImplicitDependencies: true
+  ROMImportChecks:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "15.0"
+    sources:
+      - path: Tests
+      - path: Sources/VF2ROMImport.mm
+      - path: ../src/host/romset.cpp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ajellia81.vf2recomp.importchecks
+        GENERATE_INFOPLIST_FILE: YES
+        CLANG_ENABLE_OBJC_ARC: YES
+        CLANG_CXX_LANGUAGE_STANDARD: c++20
+        OTHER_LDFLAGS: "$(inherited) -lz"
+    dependencies:
+      - sdk: UIKit.framework
+      - sdk: UniformTypeIdentifiers.framework
+schemes:
+  ROMImportChecks:
+    build:
+      targets:
+        ROMImportChecks: all
+    test:
+      targets: [ROMImportChecks]
