@@ -56,11 +56,11 @@ include('System zlib', zlib_header.split('/*', 1)[1].split('*/', 1)[0])
 (staged / 'LICENSES.txt').write_text('Third-party notices for the personal iOS build.\n' + ''.join(notices))
 sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
 (staged / 'BUILD-INFO.json').write_text(json.dumps({
-    'source_commit': sha, 'execution': 'interpreter-only', 'battle_render_size': [2868, 1320],
+    'source_commit': sha, 'execution': 'interpreter-only', 'battle_render_size': [2868, 1320], 'selectable_integer_scales': [1, 2, 3, 4, 5, 6], 'brightness_range_percent': [50, 200],
     'signed': False, 'roms_included': False, 'purpose': 'personal use; re-sign before installation',
     'gameplay_device_tested': False,
 }, indent=2) + '\n')
-ipa = out / 'VirtuaFighter2-build3-unsigned.ipa'
+ipa = out / 'VirtuaFighter2-build4-unsigned.ipa'
 subprocess.run(['ditto', '-c', '-k', '--sequesterRsrc', '--keepParent', 'Payload', ipa.name], cwd=out, check=True)
 with zipfile.ZipFile(ipa) as z:
     assert z.testzip() is None

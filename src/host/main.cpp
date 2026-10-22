@@ -147,6 +147,7 @@
 #include "scene_sync.h"
 #include "backgrounds.h"
 #include "gpu_picture.h"
+#include "display_color.h"
 #include "../gpu/gpu3d.h"
 #include "menu.h"
 #include "controls.h"
@@ -549,6 +550,8 @@ struct settings
 {
 	int scale = 0, aspect = 0, volume = 100, music = 50, effects = 100, aa = 1, filter = 0, ring = 0;
 	int pipelined_at = 0;
+	int ios_resolution = 0; // 0: 2868 x 1320; 1..MAX_SCALE: original integer render scales
+	int brightness = 100;
 	int secret = 0;   // Cheats > Secret character: the fighter in Akira's place (model2a::set_secret_character), 0 none
 	// settings.ini's version: 2 from v0.1.2 (none before). Its upgrades, once, as it's read:
 	//   2: the old default music volume, 20, to the new one, 50 (the music's stereo reverb mended:
@@ -587,6 +590,8 @@ struct settings
 		};
 		auto flag = [&](const char *k, bool &v) { int i = v; num(k, i, 0, 1); v = i; };
 		num("scale", scale, 0, MAX_SCALE);
+		num("ios_resolution", ios_resolution, 0, MAX_SCALE);
+		num("brightness", brightness, 50, 200);
 		num("picture_shape", aspect, 0, N_ASPECTS - 1);
 		num("volume", volume, 0, 100);
 		num("antialiasing", aa, 0, 3);   // 1 off, 0 Low (the 3D's edges smoothed: older builds read 0 as off), 2 and 3 drawn larger
@@ -652,6 +657,7 @@ struct settings
 		}
 		fprintf(f, "# Virtua Fighter 2 settings (the in-game menu writes these)\n");
 		fprintf(f, "settings_version = %d\n", version);
+		fprintf(f, "ios_resolution = %d\nbrightness = %d\n", ios_resolution, brightness);
 		fprintf(f, "scale = %d\npicture_shape = %d\nfullscreen = %d\nframe_timings = %d\nvolume = %d\narcade_mode = %d\n"
 				"background_filter = %d\nmusic_volume = %d\neffects_volume = %d\nantialiasing = %d\nshow_fps = %d\nscreen_filter = %d\nring_size = %d\nsmooth_motion = %d\npipelined_at = %d\narcade_coins = %d\n", scale, aspect,
 				int(fullscreen), int(timings), volume, int(arcade), int(smooth_bg), music, effects, aa, int(show_fps), filter, ring, int(smooth), pipelined_at, arcade_coin);
@@ -894,8 +900,8 @@ int main(int argc, char **argv)
 	if (arg_effects >= 0) cfg.effects = arg_effects;
 	if (arg_volume >= 0) cfg.volume = arg_volume;
 #if defined(VF2_IOS)
-	// Personal iPhone target: saved desktop settings cannot reduce battle resolution.
-	cfg.aspect = 0; cfg.fullscreen = true; cfg.scale = 1; cfg.aa = 1; cfg.renderer3d = 1;
+	// iOS keeps its selected resolution across launches; old installs start at native.
+	cfg.aspect = 0; cfg.fullscreen = true; cfg.scale = cfg.ios_resolution ? cfg.ios_resolution : 1; cfg.aa = 1; cfg.renderer3d = 1;
 #endif
 	g_pc_mode = !cfg.arcade;
 #ifdef VF2_GPU3D_METAL
@@ -1272,7 +1278,7 @@ int main(int argc, char **argv)
 	bool deck = false;
 	gpu_picture gpu_pic(ren);
 #if defined(VF2_IOS)
-	gpu_pic.set_output_size(ios_video::WIDTH, ios_video::HEIGHT);
+	gpu_pic.set_output_size(cfg.ios_resolution ? 0 : ios_video::WIDTH, cfg.ios_resolution ? 0 : ios_video::HEIGHT);
 #endif
 	bool native_video_error = false;
 	struct { bool on = false, any_scale = false, shown = false, pending = false, native = false; model2a::picture_parts parts; } gpu;
@@ -1490,8 +1496,8 @@ int main(int argc, char **argv)
 	fprintf(stderr, "the 3D: %s%s\n", R3D_NAMES[g3.mode], g3.forced_mode ? " (VF2_3D)" : "");
 	if (g3.mode != R3D_CPU) g3_start();
 #if defined(VF2_IOS)
-	if (!g3.dev) return fail("2868 x 1320 battle rendering requires the Metal renderer.");
-	fprintf(stderr, "iOS native battle render target: %d x %d (no integer-scale fallback)\n", ios_video::WIDTH, ios_video::HEIGHT);
+	if (!g3.dev) return fail("The iOS GPU renderer is unavailable.");
+	fprintf(stderr, "iOS resolution: %s\n", cfg.ios_resolution ? "integer render scale" : "2868 x 1320");
 #endif
 	auto g3_free = [&] {
 		if (g3.dev) g3.dev->finish();
@@ -1526,7 +1532,7 @@ int main(int argc, char **argv)
 	// the targets, the picture's size (false: none here, the CPU's 3D)
 	auto g3_targets = [&](int w, int h) -> bool {
 #if defined(VF2_IOS)
-		w = ios_video::WIDTH; h = ios_video::HEIGHT;
+		if (!cfg.ios_resolution) { w = ios_video::WIDTH; h = ios_video::HEIGHT; }
 #endif
 		if (g3.w == w && g3.h == h && g3.tex[0]) return true;
 		g3_free();
@@ -1561,8 +1567,9 @@ int main(int argc, char **argv)
 		f.w = m.width() * scale; f.h = model2a::HEIGHT * scale;
 		f.scale = scale; f.ss = aa_now();
 		f.edge = aa == 0 && f.ss == 1;
+		f.pixel_scale_x = f.pixel_scale_y = 0;
 #if defined(VF2_IOS)
-		ios_video::configure(f, m.width(), model2a::HEIGHT);
+		if (!cfg.ios_resolution) ios_video::configure(f, m.width(), model2a::HEIGHT);
 #endif
 		f.backdrop = p.backdrop; f.mid = p.mid; f.w2d = p.w; f.pad = model2a::picture_parts::PAD;
 		f.bdx = p.bdx; f.bdy = p.bdy; f.filter = p.filter; f.version2d = p.version;
@@ -2110,6 +2117,7 @@ int main(int argc, char **argv)
 	double queue_avg = QUEUED * frame_bytes;   // the sound queued, averaged over about half a second
 	uint64_t next_save = start_ns + 3000000000ull;
 	bool new_picture = true;
+	bool redraw_gpu = false;
 	// the 3D's renderer, before the first picture (unseen): Auto starts on what it found here before
 	// at this scale and antialiasing, and checks it; the GPU warmed up either way
 	if (g3.dev && g3.mode != R3D_CPU) {
@@ -2128,6 +2136,9 @@ int main(int argc, char **argv)
 	auto redraw_shown = [&] {
 		picture = shown_pic ? &m.redraw(*shown_pic) : &m.render(true);
 		new_picture = true;
+#if defined(VF2_IOS)
+		redraw_gpu = true;
+#endif
 	};
 	auto restart_clock = [&] { clock_t = SDL_GetTicksNS(); frame_clock = double(frames_run); };
 
@@ -2226,7 +2237,7 @@ int main(int argc, char **argv)
 	// a new render scale or antialiasing: a new picture size
 	auto set_scale = [&](int v, bool by_player = true) {
 #if defined(VF2_IOS)
-		v = 1; aa = cfg.aa = 1;
+		aa = cfg.aa = 1;
 #endif
 		scale = std::clamp(v, 1, MAX_SCALE);
 		if (by_player) {
@@ -2332,8 +2343,15 @@ int main(int argc, char **argv)
 	auto display_page = [&] {
 		menu_page p{ "Display", "", {} };
 #if defined(VF2_IOS)
-		p.items.push_back({ "Resolution", "Battle graphics are rendered at this fixed resolution.",
-			[] { return std::string("2868 x 1320"); }, {}, {} });
+		p.items.push_back({ "Resolution", "Choose the original 1x–6x render scales or direct 2868 x 1320 rendering. Higher resolutions need more GPU time and memory.",
+			[&] { return cfg.ios_resolution ? std::to_string(cfg.ios_resolution) + "x (" + std::to_string(m.width() * scale) + " x " + std::to_string(model2a::HEIGHT * scale) + ")" : std::string("2868 x 1320 (iPhone)"); },
+			[&](int d) {
+				finish_async(false);
+				g3_free(); gpu_free();
+				cfg.ios_resolution = wrap(cfg.ios_resolution + d, MAX_SCALE + 1);
+				gpu_pic.set_output_size(cfg.ios_resolution ? 0 : ios_video::WIDTH, cfg.ios_resolution ? 0 : ios_video::HEIGHT);
+				set_scale(cfg.ios_resolution ? cfg.ios_resolution : 1);
+			} });
 #else
 		p.items.push_back({ "Render scale",
 			"How sharp the 3D is. 1x is the original arcade resolution; higher is sharper but needs a faster computer. If yours can't keep up, the game lowers it for you. (F5)",
@@ -2410,6 +2428,9 @@ int main(int argc, char **argv)
 			"On: a picture for each refresh of your screen (up to 120 a second), placed between the arcade's 57.5 frames a second, a frame behind them. Off: only the arcade's own frames, as on the cabinet (uneven on most screens).",
 			[&] { return on_off(cfg.smooth); },
 			[&](int) { cfg.smooth = !cfg.smooth; cfg_dirty = true; gov_fresh(); } });   // (the picture on show stays)
+		p.items.push_back({ "Brightness", "100% is the original picture. Increase up to 200% to brighten the game; bright highlights may clip. Menus and touch controls are unchanged.",
+			[&] { return std::to_string(cfg.brightness) + "%"; },
+			[&](int d) { cfg.brightness = std::clamp(cfg.brightness + 10 * d, 50, 200); cfg_dirty = true; } });
 		p.items.push_back({ "Screen filter",
 			"Scanlines adds the dark lines between the arcade monitor's rows. CRT adds those, the monitor's red, green and blue stripes, and slightly darker corners. The lines need a large window or fullscreen to show.",
 			[&] { return std::string(FILTER_NAMES[cfg.filter]); },
@@ -3189,9 +3210,12 @@ int main(int argc, char **argv)
 			}
 		}
 #if defined(VF2_IOS)
-		if (m.wide_frame() && last_shown && (!gpu.shown || !gpu.native) && !g3.pending) draw_into_texture = true;
+		// Setting changes must refresh the GPU composition even while the menu is
+		// paused. Its CPU redraw is a reference image, not a native-size failure.
+		if ((redraw_gpu || (m.wide_frame() && last_shown && (!gpu.shown || !gpu.native))) && !g3.pending) draw_into_texture = true;
 #endif
 		// the 3D on the GPU (see gpu3d_state), the 2D's parts put together around it (gpu_picture)
+		bool composed_now = false;
 		if (draw_into_texture && g3.on && !g3.failed && g3_targets(m.width() * scale, model2a::HEIGHT * scale) && gpu_pic.ready(m.width(), scale)) {
 			const uint64_t td = SDL_GetTicksNS();
 			const float a = smooth_now ? alpha : -1.0f;
@@ -3244,7 +3268,7 @@ int main(int argc, char **argv)
 							g3.checked++; g3.check_px += uint64_t(w) * h; g3.check_diff += diff; g3.check_bad += diff != 0;
 						}
 					}
-					if (pipelined) {   // put together a pass later (the GPU drawing meanwhile)
+					if (pipelined && !redraw_gpu) {   // setting redraws complete now; normal pictures a pass later (the GPU drawing meanwhile)
 						gpu_pic.upload_2d(gpu.parts, ss);   // (now, while the 2D is the board's)
 						pending_pic = m.last_picture();
 						async_pending = gpu.pending = g3.pending = true;
@@ -3259,6 +3283,7 @@ int main(int argc, char **argv)
 							gpu.native = gpu.parts.gpu3d || !gpu.parts.has3d;
 							g3_check_shown();
 							gpu.shown = true;
+							composed_now = true;
 							shown_pic = m.last_picture();
 							pace.pictures++;
 							new_shown = true;
@@ -3353,6 +3378,10 @@ int main(int argc, char **argv)
 			if (scene_sync::is_blank(b)) show_drawn(b);
 			else pace.pictures++, pace.held++;   // (a picture held on purpose isn't one missed)
 		}
+#if defined(VF2_IOS)
+		// Do not overwrite a fresh GPU frame with redraw_shown()'s CPU texture.
+		if (composed_now) { redraw_gpu = false; new_picture = false; }
+#endif
 		if (new_picture) {
 			const uint64_t tu = SDL_GetTicksNS();
 			upload_picture(*picture);
@@ -3380,10 +3409,8 @@ int main(int argc, char **argv)
 			fps_since = now;
 		}
 #if defined(VF2_IOS)
-		if (native_video_error || (m.wide_frame() && last_shown && (!gpu.shown || !gpu.native))) {
-			if (!native_video_error && g3.pending) { SDL_Delay(1); continue; }
-			native_video_error = true;
-			message_box(SDL_MESSAGEBOX_ERROR, "Native rendering unavailable", "The 2868 x 1320 battle frame could not be rendered. See log.txt.");
+		if (native_video_error) {
+			message_box(SDL_MESSAGEBOX_ERROR, "GPU rendering unavailable", "The selected resolution could not be rendered. See log.txt.");
 			running = false;
 			break;
 		}
@@ -3391,7 +3418,7 @@ int main(int argc, char **argv)
 		const uint64_t tb = SDL_GetTicksNS();
 		SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
 		SDL_RenderClear(ren);
-		SDL_RenderTexture(ren, gpu.shown ? gpu_pic.target() : tex, nullptr, nullptr);
+		draw_game_picture(ren, gpu.shown ? gpu_pic.target() : tex, cfg.brightness);
 		draw_filter();
 		menu.render();
 		pace.blit += SDL_GetTicksNS() - tb;

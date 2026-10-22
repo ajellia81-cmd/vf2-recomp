@@ -159,6 +159,8 @@ public:
 		float old_x = 1, old_y = 1;
 		SDL_GetRenderScale(m_ren, &old_x, &old_y);
 		if (!SDL_SetRenderTarget(m_ren, m_target)) return false;
+		SDL_SetRenderDrawColor(m_ren, 0, 0, 0, 255);
+		SDL_RenderClear(m_ren);
 		// Keep legacy 2D coordinates, but rasterize the composition directly into
 		// its native-sized target. An external native 3D texture maps 1:1 to it.
 		SDL_SetRenderScale(m_ren, m_output_w ? float(m_output_w) / W : 1.0f,

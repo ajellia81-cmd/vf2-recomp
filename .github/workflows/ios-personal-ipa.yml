@@ -19,7 +19,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Install project generator
-        run: brew install xcodegen
+        run: brew install xcodegen sdl3
       - name: Identify Apple toolchain
         id: toolchain
         run: echo "key=$(xcodebuild -version | shasum -a 256 | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
@@ -51,6 +51,13 @@ jobs:
           result=$?
           set -e
           if [ "$result" = 77 ]; then echo 'Metal runtime test skipped: inspect the message above.'; else exit "$result"; fi
+      - name: Test display composition without game data
+        run: |
+          mkdir -p ios/build
+          xcrun clang++ -std=c++20 -O2 -I"$(brew --prefix sdl3)/include" -Isrc/core/shim_include \
+            tools/checks/display_pipeline.cpp src/host/d3d11_map.cpp \
+            -L"$(brew --prefix sdl3)/lib" -lSDL3 -o ios/build/display-pipeline
+          ios/build/display-pipeline
       - name: Check dependencies and generate Xcode project
         run: |
           mkdir -p ios/build
@@ -80,7 +87,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: VF2Recomp-personal-unsigned-${{ github.sha }}
-          path: ios/build/personal/VirtuaFighter2-build3-unsigned.ipa
+          path: ios/build/personal/VirtuaFighter2-build4-unsigned.ipa
           if-no-files-found: error
           retention-days: 3
           compression-level: 0

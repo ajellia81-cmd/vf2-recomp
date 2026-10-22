@@ -39,7 +39,7 @@ and packages the app under `Payload/` without ROMs or signing credentials.
 It runs manually or when its own workflow file changes on `ios-port`, only in
 the personal fork. The artifact expires after three days; no release is published.
 
-The resulting `VirtuaFighter2-build3-unsigned.ipa` requires personal re-signing
+The resulting `VirtuaFighter2-build4-unsigned.ipa` requires personal re-signing
 before installation. It contains no provisioning profile and no JIT entitlement.
 The source commit is recorded inside `BUILD-INFO.json`. Packaging does not prove
 working gameplay or device performance. The original compile-only workflow
@@ -53,21 +53,29 @@ runtime teardown boundary. An iOS compile of the native compiler deliberately
 fails. The MAME i960 interpreter is selected without executable-memory
 allocations. Do not enable JIT entitlements or ROM-generated recompilation.
 
-The existing Metal backend is linked using `VF2_GPU3D_METAL=1` and shares SDL's
-`CAMetalLayer`. iOS battles use a fixed **2868 x 1320** Metal rasterization target
-and a matching composition target. Vertices and clipping are transformed to
-fractional per-axis pixel coordinates before rasterization; the 3D is not drawn
-at an integer arcade multiplier and then enlarged. Original 2D artwork/HUD is
-sampled into the native composition. Non-battle screens retain their original
-4:3 content where the game requires it.
+The Metal backend is linked using `VF2_GPU3D_METAL=1` and shares SDL's
+`CAMetalLayer`. Display > Resolution offers the original 1x through 6x render
+scales and direct **2868 x 1320** rendering. The native option uses fractional
+per-axis vertex/clipping coordinates and a matching composition target rather
+than enlarging lower-resolution 3D. Original 2D artwork is sampled into that
+composition. The selected resolution is saved separately as `ios_resolution`;
+old installs retain the native option as their initial selection. Resolution
+changes finish pending work and recreate both GPU and composition buffers.
 
-Saved scale/aspect/renderer settings and the resolution governor cannot lower
-this battle target. Metal is required: an unavailable/failed native battle path
-reports an error instead of displaying enlarged low-resolution CPU 3D. The
-Display menu reports the fixed resolution. No supersampling or Low edge-AA is
-applied to the native 3D grid. Metal shader compilation through Apple's API is
-separate from CPU JIT execution. Interpreter speed, thermals, GPU correctness
-with actual game data and sustained audio timing remain unmeasured on iOS.
+Background-filter changes redraw through the GPU while the menu is paused.
+A temporary CPU redraw or non-battle transition is not treated as a native-size
+failure. Every composition clears its target first so uncovered backdrop pixels
+cannot retain prior/uninitialized data. CPU execution remains interpreter-only;
+changing the render scale never enables JIT.
+
+Display > Brightness adjusts the completed game picture from 50% to 200%, with
+100% preserving original RGB values. Values above 100% brighten RGB before SDR
+clipping, keeping black at black. Menus and touch controls are not modulated.
+Screen filter is separate: Scanlines and CRT intentionally alter brightness.
+A ROM-free Metal/SDL test checks known RGB values, background-filter toggles,
+integer/native resolution switches, compositor recreation, and brightness gain.
+These checks do not establish correctness of actual gameplay or NVRAM-dependent
+cold launches on a physical iPhone. No gameplay data is used by CI.
 
 ## ROM import and storage
 
