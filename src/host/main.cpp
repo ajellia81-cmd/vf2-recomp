@@ -2363,7 +2363,7 @@ int main(int argc, char **argv)
 			[&](int d) { set_shape(wrap(aspect_i + d, N_ASPECTS)); } });
 #endif
 		p.items.push_back({ "Background filter",
-			"Smooth softens the stage backgrounds so they don't look blocky when enlarged. Off keeps their original pixels. Only matters above 1x.",
+			"Smooth softens the stage backgrounds so they don't look blocky when enlarged. Off keeps their original pixels. Applies to stage backgrounds, including native resolution; fighters and HUD stay sharp.",
 			[&] { return std::string(cfg.smooth_bg ? "Smooth" : "Off"); },
 			[&](int) {
 				cfg.smooth_bg = !cfg.smooth_bg; cfg_dirty = true;
@@ -2381,7 +2381,7 @@ int main(int argc, char **argv)
 			"Scanlines adds the dark lines between the arcade monitor's rows. CRT adds those, the monitor's red, green and blue stripes, and slightly darker corners. The lines need a large window or fullscreen to show.",
 			[&] { return std::string(FILTER_NAMES[cfg.filter]); },
 			[&](int d) { cfg.filter = wrap(cfg.filter + d, 3); cfg_dirty = true; } });
-		p.items.push_back({ "Show FPS", "Shows the frame rate in the top right corner.",
+		p.items.push_back({ "Show FPS", "Shows the frame rate inside the screen's safe area.",
 			[&] { return on_off(cfg.show_fps); },
 			[&](int) { cfg.show_fps = !cfg.show_fps; cfg_dirty = true; if (!cfg.show_fps) menu.set_fps(""); } });
 #if !defined(VF2_IOS)

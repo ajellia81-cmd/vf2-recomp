@@ -89,7 +89,7 @@ jobs:
         run: python3 ios/Scripts/package-personal-ipa.py
       - uses: actions/upload-artifact@v4
         with:
-          name: VF2Recomp-personal-unsigned-${{ github.sha }}
+          name: VirtuaFighter2-build6-${{ github.sha }}
           path: ios/build/personal/VirtuaFighter2-build6-unsigned.ipa
           if-no-files-found: error
           retention-days: 3
