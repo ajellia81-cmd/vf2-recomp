@@ -69,6 +69,10 @@ jobs:
           python3 ios/Scripts/prepare-app-icon.py
           xcodegen generate --spec ios/project.yml
           python3 ios/Scripts/verify-project.py
+      - name: Verify touch Menu transitions without game data
+        run: |
+          xcrun clang++ -std=c++20 -O2 -I"$(brew --prefix sdl3)/include" tools/checks/touch_menu.cpp -o ios/build/touch-menu
+          ios/build/touch-menu
       - name: Compile unsigned iPhone app (no archive or export)
         run: |
           xcodebuild -project ios/VF2Recomp.xcodeproj -scheme VF2Recomp \
@@ -90,8 +94,8 @@ jobs:
         run: python3 ios/Scripts/package-personal-ipa.py
       - uses: actions/upload-artifact@v4
         with:
-          name: VirtuaFighter2-build8-${{ github.sha }}
-          path: ios/build/personal/VirtuaFighter2-build8-unsigned.ipa
+          name: VirtuaFighter2-build9-${{ github.sha }}
+          path: ios/build/personal/VirtuaFighter2-build9-unsigned.ipa
           if-no-files-found: error
           retention-days: 3
           compression-level: 0
