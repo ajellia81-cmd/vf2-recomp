@@ -153,6 +153,7 @@
 #if defined(VF2_IOS)
 #include "ios_input.h"
 #include "ios_platform.h"
+#include "ios_video_policy.h"
 #endif
 #include "sysinfo.h"
 #include <SDL3/SDL.h>
@@ -559,7 +560,7 @@ struct settings
 	// here); the GPU's quality (0 exact, 1 fast); and Auto's choices so far on this machine, by
 	// scale and antialiasing ("3x1:g 2x1:c": a start there starts on that one, then checks it)
 #if defined(VF2_IOS)
-	int renderer3d = 0, gpu_quality = 0; // CPU default until shared-layer Metal is validated on-device.
+	int renderer3d = 1, gpu_quality = 0; // Native fractional pixel grids require Metal.
 #else
 	int renderer3d = 2, gpu_quality = 0;
 #endif
@@ -892,6 +893,10 @@ int main(int argc, char **argv)
 	if (arg_music >= 0) cfg.music = arg_music;
 	if (arg_effects >= 0) cfg.effects = arg_effects;
 	if (arg_volume >= 0) cfg.volume = arg_volume;
+#if defined(VF2_IOS)
+	// Personal iPhone target: saved desktop settings cannot reduce battle resolution.
+	cfg.aspect = 0; cfg.fullscreen = true; cfg.scale = 1; cfg.aa = 1; cfg.renderer3d = 1;
+#endif
 	g_pc_mode = !cfg.arcade;
 #ifdef VF2_GPU3D_METAL
 	{   // the GPU's 3D started while the game boots, if it'll be wanted (its shaders compiled meanwhile)
@@ -1188,6 +1193,9 @@ int main(int argc, char **argv)
 	SDL_SetRenderVSync(ren, getenv("VF2_NO_VSYNC") ? 0 : 1);   // (VF2_NO_VSYNC=1: tests, as a driver forcing it off)
 	// The picture's shape: the chosen one, or the window's (fit: between 4:3 and 32:9)
 	auto window_aspect = [&] {
+#if defined(VF2_IOS)
+		return ios_video::ASPECT;
+#endif
 		int w = 0, h = 0;
 		SDL_GetWindowSizeInPixels(win, &w, &h);
 		if ((SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN) && (SDL_GetWindowFlags(win) & SDL_WINDOW_HIDDEN))   // (it takes the screen's size once shown)
@@ -1205,6 +1213,10 @@ int main(int argc, char **argv)
 	// 496 x 384 fills the cabinet's 4:3 tube: shown as 512 x 384 (wider, 384 * its width / 372),
 	// letterboxed in the window
 	auto present_shape = [&] {
+#if defined(VF2_IOS)
+		SDL_SetRenderLogicalPresentation(ren, ios_video::WIDTH, ios_video::HEIGHT, SDL_LOGICAL_PRESENTATION_LETTERBOX);
+		return;
+#endif
 		SDL_SetRenderLogicalPresentation(ren, int(std::lround(384.0 * m.width() / 372.0)), 384, SDL_LOGICAL_PRESENTATION_LETTERBOX);
 	};
 	present_shape();
@@ -1258,7 +1270,11 @@ int main(int argc, char **argv)
 	// back and checked (the log).
 	bool deck = false;
 	gpu_picture gpu_pic(ren);
-	struct { bool on = false, any_scale = false, shown = false, pending = false; model2a::picture_parts parts; } gpu;
+#if defined(VF2_IOS)
+	gpu_pic.set_output_size(ios_video::WIDTH, ios_video::HEIGHT);
+#endif
+	bool native_video_error = false;
+	struct { bool on = false, any_scale = false, shown = false, pending = false, native = false; model2a::picture_parts parts; } gpu;
 	bool soft_render = false;   // (the renderer is the CPU's: SDL's software one, llvmpipe, SwiftShader. Auto measures there)
 	{
 		const char *g = getenv("VF2_GPU");
@@ -1280,6 +1296,9 @@ int main(int argc, char **argv)
 		gpu.on = g ? atoi(g) != 0 : !(name && !strcmp(name, "software")) && !soft_gl;
 		gpu.any_scale = g && atoi(g) == 1;
 		if (const char *c = getenv("VF2_GPU_CHECK")) gpu_pic.check_every = std::max(0, atoi(c));
+#if defined(VF2_IOS)
+		gpu.on = true; gpu.any_scale = true; gpu_pic.check_every = 0;
+#endif
 		fprintf(stderr, "renderer %s: the 2D %s\n", name ? name : "?", !gpu.on ? "put together on the CPU" : gpu.any_scale ? "put together on the GPU" : "put together on the GPU from 2x");
 	}
 	// Pipelined from the first frame where it will be wanted: on a Steam Deck (a fight at 2x is
@@ -1311,7 +1330,7 @@ int main(int argc, char **argv)
 	if (const char *d = getenv("VF2_DRAW_LOCKED")) draw_locked = atoi(d) != 0;
 	std::vector<uint32_t> async_buf;   // (else: the picture drawn alongside, until it's sent up)
 	bool async_in_buf = false;
-	auto gpu_free = [&] { gpu_pic.free(); gpu.shown = false; };
+	auto gpu_free = [&] { gpu_pic.free(); gpu.shown = gpu.native = false; };
 	// (drawn alongside where textures can vanish, or anywhere the board doesn't draw into a
 	// locked texture: the 3D into the host's memory, not left where the board drew it, which its
 	// next frame may draw over before it's sent up)
@@ -1334,6 +1353,7 @@ int main(int argc, char **argv)
 		}
 		if (!gpu_pic.put(p)) return false;   // (no textures that size here: checked before drawing, gpu_pic.ready)
 		gpu.shown = true;
+		gpu.native = !p.has3d;
 		return true;
 	};
 	// ---- The 3D on the GPU (src/gpu/gpu3d.h; Display > 3D renderer) ----
@@ -1438,6 +1458,9 @@ int main(int argc, char **argv)
 		if (const char *r = getenv("VF2_AUTO_RECHECK"))
 			for (const char *q = r; *q; ) { g3.recheck_at.push_back(atoll(q)); while (*q && *q != ',') q++; if (*q) q++; }
 	}
+#if defined(VF2_IOS)
+	g3.mode = R3D_GPU; g3.forced_mode = true; g3.check_every = 0;
+#endif
 	// the GPU's renderer started (its shaders compiled) when first wanted: not at all for the CPU's
 	auto g3_start = [&] {
 		if (g3.dev || g3.tried) return;
@@ -1465,6 +1488,10 @@ int main(int argc, char **argv)
 	};
 	fprintf(stderr, "the 3D: %s%s\n", R3D_NAMES[g3.mode], g3.forced_mode ? " (VF2_3D)" : "");
 	if (g3.mode != R3D_CPU) g3_start();
+#if defined(VF2_IOS)
+	if (!g3.dev) return fail("2868 x 1320 battle rendering requires the Metal renderer.");
+	fprintf(stderr, "iOS native battle render target: %d x %d (no integer-scale fallback)\n", ios_video::WIDTH, ios_video::HEIGHT);
+#endif
 	auto g3_free = [&] {
 		if (g3.dev) g3.dev->finish();
 		for (SDL_Texture *&t : g3.tex) if (t) { SDL_DestroyTexture(t); t = nullptr; }
@@ -1475,7 +1502,12 @@ int main(int argc, char **argv)
 	// and its textures: a picture failing in play (a suspend and resume, a reset) is the CPU for this
 	// run only; saved, one bad moment on a Deck, Vulkan its only driver, put every later start on the CPU)
 	auto g3_fail = [&](const char *why, bool keep = true) {
+#if defined(VF2_IOS)
+		native_video_error = true;
+		fprintf(stderr, "Native battle rendering failed: %s\n", why);
+#else
 		fprintf(stderr, "the 3D on the GPU: %s: on the CPU %s\n", why, keep ? "from now on" : "for this run");
+#endif
 		g3.failed = true; g3.on = false;
 		g3_free();
 #ifdef VF2_GPU3D_SDL
@@ -1492,6 +1524,9 @@ int main(int argc, char **argv)
 	};
 	// the targets, the picture's size (false: none here, the CPU's 3D)
 	auto g3_targets = [&](int w, int h) -> bool {
+#if defined(VF2_IOS)
+		w = ios_video::WIDTH; h = ios_video::HEIGHT;
+#endif
 		if (g3.w == w && g3.h == h && g3.tex[0]) return true;
 		g3_free();
 		if (!g3.dev->make_targets(w, h, G3_TARGETS)) { g3_fail("no targets that size"); return false; }
@@ -1525,6 +1560,9 @@ int main(int argc, char **argv)
 		f.w = m.width() * scale; f.h = model2a::HEIGHT * scale;
 		f.scale = scale; f.ss = aa_now();
 		f.edge = aa == 0 && f.ss == 1;
+#if defined(VF2_IOS)
+		ios_video::configure(f, m.width(), model2a::HEIGHT);
+#endif
 		f.backdrop = p.backdrop; f.mid = p.mid; f.w2d = p.w; f.pad = model2a::picture_parts::PAD;
 		f.bdx = p.bdx; f.bdy = p.bdy; f.filter = p.filter; f.version2d = p.version;
 		if (!g3.dev->submit(g3.list.data(), g3.list.size(), f, target)) { g3_fail("a picture couldn't be drawn", false); return false; }
@@ -1719,6 +1757,12 @@ int main(int argc, char **argv)
 	};
 	// ... all at once (the start, the menu: nothing moves on screen)
 	auto g3_decide = [&](const char *why, bool real) {
+#if defined(VF2_IOS)
+		g3.on = g3.dev && !g3.failed;
+		g3.recheck = g3.b.active = false;
+		g3.last_check = SDL_GetTicksNS();
+		return;
+#endif
 		g3.recheck = false;
 		g3.b.active = false;
 		if (!g3.dev || g3.failed || g3.mode == R3D_CPU) {
@@ -1741,6 +1785,7 @@ int main(int argc, char **argv)
 			const bool ok = show ? g3_settle() : g3_finish();
 			if (!show || !ok) { gpu_unlock(); return false; }
 			if (!gpu_pic.put(gpu.parts, gpu.parts.has3d ? g3.tex[g3.pending_t] : nullptr, g3.pending_ss)) return false;
+			gpu.native = gpu.parts.gpu3d || !gpu.parts.has3d;
 			g3_check_shown();
 			gpu.shown = true;
 			return true;
@@ -2098,7 +2143,11 @@ int main(int argc, char **argv)
 	// always; the governor only turns pipelining on. Its cuts lowered a fast computer whose first
 	// seconds were busy, or whose 3D Auto had put on the CPU, to 1x for the run (vf2-recomp #19).
 	// VF2_GOVERN_CUTS=1: tests, as before)
+#if defined(VF2_IOS)
+	const bool govern_cuts = false;
+#else
 	const bool govern_cuts = getenv("VF2_GOVERN_CUTS") != nullptr;
+#endif
 	struct load_window { uint64_t since = 0, work = 0, frames = 0, starved = 0, worst = 0; int over = 0; bool first = true; int slow = 0; } load;
 	// the ordinary passes of the window (see below, at the end of a pass): time, work, frames,
 	// pictures, the sound running dry; gov_quiet: passes still to skip after a scene change's
@@ -2175,6 +2224,9 @@ int main(int argc, char **argv)
 	};
 	// a new render scale or antialiasing: a new picture size
 	auto set_scale = [&](int v, bool by_player = true) {
+#if defined(VF2_IOS)
+		v = 1; aa = cfg.aa = 1;
+#endif
 		scale = std::clamp(v, 1, MAX_SCALE);
 		if (by_player) {
 			cfg.scale = scale; aa = cfg.aa; cfg_dirty = true;
@@ -2215,12 +2267,18 @@ int main(int argc, char **argv)
 		gov_calm = 0; gov_raised = false; gov_calm_need = 5;
 	};
 	auto set_shape = [&](int v) {
+#if defined(VF2_IOS)
+		v = 0;
+#endif
 		aspect_i = cfg.aspect = v; cfg_dirty = true;
 		apply_aspect();
 		reshape();   // (the title too)
 		gov_fresh();
 	};
 	auto set_fullscreen = [&](bool on) {
+#if defined(VF2_IOS)
+		on = true;
+#endif
 		cfg.fullscreen = on; cfg_dirty = true;
 		SDL_SetWindowFullscreen(win, on);
 		SDL_SyncWindow(win);     // macOS animates into fullscreen: wait for it to finish
@@ -2272,6 +2330,10 @@ int main(int argc, char **argv)
 	auto back_item = [&] { return menu_item{ "Back", "Back to the previous page.", {}, {}, [&] { menu.pop(); } }; };
 	auto display_page = [&] {
 		menu_page p{ "Display", "", {} };
+#if defined(VF2_IOS)
+		p.items.push_back({ "Resolution", "Battle graphics are rendered at this fixed resolution.",
+			[] { return std::string("2868 x 1320"); }, {}, {} });
+#else
 		p.items.push_back({ "Render scale",
 			"How sharp the 3D is. 1x is the original arcade resolution; higher is sharper but needs a faster computer. If yours can't keep up, the game lowers it for you. (F5)",
 			[&] { return std::to_string(scale) + "x"; },
@@ -2311,6 +2373,7 @@ int main(int argc, char **argv)
 				redraw_shown();
 				log_state("the player's 3D renderer");
 			} });
+#endif
 #ifdef _WIN32
 		p.items.push_back({ "Graphics driver",
 			"Which of Windows' graphics drivers the GPU uses. Auto starts on Vulkan, and on Direct3D 12 if Vulkan won't start or can't draw the game's 3D. Pick Direct3D 12 if the game runs better on it here. Takes effect the next time the game starts.",
@@ -2328,10 +2391,12 @@ int main(int argc, char **argv)
 				g3_decide("the player's GPU quality", true);
 				redraw_shown();
 			} });
+#if !defined(VF2_IOS)
 		p.items.push_back({ "Picture shape",
 			"Fit the window fills any screen shape. The other shapes add black bars to keep their shape; 4:3 is the original arcade screen. (F6)",
 			[&] { return std::string(aspect_i ? ASPECT_NAMES[aspect_i] : "Fit the window"); },
 			[&](int d) { set_shape(wrap(aspect_i + d, N_ASPECTS)); } });
+#endif
 		p.items.push_back({ "Background filter",
 			"Smooth softens the stage backgrounds so they don't look blocky when enlarged. Off keeps their original pixels. Only matters above 1x.",
 			[&] { return std::string(cfg.smooth_bg ? "Smooth" : "Off"); },
@@ -3120,6 +3185,9 @@ int main(int argc, char **argv)
 				draw_into_texture = true;
 			}
 		}
+#if defined(VF2_IOS)
+		if (m.wide_frame() && !gpu.shown && !g3.pending) draw_into_texture = true;
+#endif
 		// the 3D on the GPU (see gpu3d_state), the 2D's parts put together around it (gpu_picture)
 		if (draw_into_texture && g3.on && !g3.failed && g3_targets(m.width() * scale, model2a::HEIGHT * scale) && gpu_pic.ready(m.width(), scale)) {
 			const uint64_t td = SDL_GetTicksNS();
@@ -3185,6 +3253,7 @@ int main(int argc, char **argv)
 						pace.draw += te - td;
 						gpu_pic.upload_2d(gpu.parts, ss);   // (the 2D sent up while the GPU draws the 3D)
 						if (g3_settle() && gpu_pic.put(gpu.parts, gpu.parts.has3d ? g3.tex[target] : nullptr, ss)) {
+							gpu.native = gpu.parts.gpu3d || !gpu.parts.has3d;
 							g3_check_shown();
 							gpu.shown = true;
 							shown_pic = m.last_picture();
@@ -3307,6 +3376,15 @@ int main(int argc, char **argv)
 			fps_shown = 0;
 			fps_since = now;
 		}
+#if defined(VF2_IOS)
+		if (native_video_error || (m.wide_frame() && (!gpu.shown || !gpu.native))) {
+			if (!native_video_error && g3.pending) { SDL_Delay(1); continue; }
+			native_video_error = true;
+			message_box(SDL_MESSAGEBOX_ERROR, "Native rendering unavailable", "The 2868 x 1320 battle frame could not be rendered. See log.txt.");
+			running = false;
+			break;
+		}
+#endif
 		const uint64_t tb = SDL_GetTicksNS();
 		SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
 		SDL_RenderClear(ren);
@@ -3673,5 +3751,5 @@ int main(int argc, char **argv)
 	ios_input_uninstall();
 #endif
 	SDL_Quit();
-	return 0;
+	return native_video_error ? 1 : 0;
 }

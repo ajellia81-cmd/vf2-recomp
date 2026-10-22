@@ -37,10 +37,20 @@ fails. The MAME i960 interpreter is selected without executable-memory
 allocations. Do not enable JIT entitlements or ROM-generated recompilation.
 
 The existing Metal backend is linked using `VF2_GPU3D_METAL=1` and shares SDL's
-`CAMetalLayer`. CPU 3D is the **initial default**; opt-in GPU and Auto modes need
-on-device output/performance validation. Metal shader compilation through
-Apple's API is separate from CPU JIT execution. Interpreter speed, thermals,
-GPU correctness and sustained audio timing remain unmeasured on iOS.
+`CAMetalLayer`. iOS battles use a fixed **2868 x 1320** Metal rasterization target
+and a matching composition target. Vertices and clipping are transformed to
+fractional per-axis pixel coordinates before rasterization; the 3D is not drawn
+at an integer arcade multiplier and then enlarged. Original 2D artwork/HUD is
+sampled into the native composition. Non-battle screens retain their original
+4:3 content where the game requires it.
+
+Saved scale/aspect/renderer settings and the resolution governor cannot lower
+this battle target. Metal is required: an unavailable/failed native battle path
+reports an error instead of displaying enlarged low-resolution CPU 3D. The
+Display menu reports the fixed resolution. No supersampling or Low edge-AA is
+applied to the native 3D grid. Metal shader compilation through Apple's API is
+separate from CPU JIT execution. Interpreter speed, thermals, GPU correctness
+with actual game data and sustained audio timing remain unmeasured on iOS.
 
 ## ROM import and storage
 
