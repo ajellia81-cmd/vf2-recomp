@@ -70,3 +70,13 @@ std::string ios_import_rom()
 	SDL_DestroyWindow(window);
 	return result;
 }
+
+void ios_safe_area(SDL_Window *window, float &left, float &top, float &right, float &bottom)
+{
+	UIWindow *native = (__bridge UIWindow *)SDL_GetPointerProperty(SDL_GetWindowProperties(window),
+		SDL_PROP_WINDOW_UIKIT_WINDOW_POINTER, nullptr);
+	const UIEdgeInsets insets = native.safeAreaInsets;
+	const float density = SDL_GetWindowPixelDensity(window);
+	left = insets.left * density; top = insets.top * density;
+	right = insets.right * density; bottom = insets.bottom * density;
+}

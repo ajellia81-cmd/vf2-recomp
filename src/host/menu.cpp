@@ -1,4 +1,7 @@
 #include "display_color.h"
+#if defined(VF2_IOS)
+#include "ios_platform.h"
+#endif
 #include "menu.h"
 #include <RmlUi/Core.h>
 #include "RmlUi_Platform_SDL.h"
@@ -394,6 +397,16 @@ void game_menu::render()
 	SDL_GetCurrentRenderOutputSize(m->ren, &w, &h);
 	m->ctx->SetDimensions(Rml::Vector2i(w, h));
 	m->ctx->SetDensityIndependentPixelRatio(float(h) / 720.0f);
+#if defined(VF2_IOS)
+	float left = 0, top = 0, right = 0, bottom = 0;
+	ios_safe_area(m->win, left, top, right, bottom);
+	if (m->overlay) if (Rml::Element *fps = m->overlay->GetElementById("fps")) {
+		// Upper left avoids the native touch Menu/Coin/Start controls on the right.
+		fps->SetProperty("left", std::to_string(int(left + 18.0f * h / 720)) + "px");
+		fps->SetProperty("right", "auto");
+		fps->SetProperty("top", std::to_string(int(top + 12.0f * h / 720)) + "px");
+	}
+#endif
 	m->ctx->Update();
 	m->gfx->BeginOverlay();
 	m->ctx->Render();

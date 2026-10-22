@@ -1976,7 +1976,7 @@ void model2a::draw_2d(bool polygons, bool parts)
 		}
 	});
 	m_tiles.m_ox = 0;
-	const bool smooth = m_backdrop_smooth && s > 1 && wide && !(polygons && m_video->shows_framebuffer());
+	const bool smooth = m_backdrop_smooth && wide && !(polygons && m_video->shows_framebuffer());
 	if (smooth) backdrop_smooth(w, !parts);
 	m_2d_wide = wide;
 	m_2d_filter = smooth;

@@ -148,6 +148,7 @@
 #include "backgrounds.h"
 #include "gpu_picture.h"
 #include "display_color.h"
+#include "screen_filter.h"
 #include "../gpu/gpu3d.h"
 #include "menu.h"
 #include "controls.h"
@@ -357,7 +358,7 @@ hotkey read_inputs(model2a &m, SDL_Gamepad *pads[2], pad_state ps[2], const play
 		const bool kcoin = key(ctl[p].key[C_COIN]);
 		if (kcoin && !key_coin_was[p] && !g_pc_mode) st.coin_frames = 6;
 		key_coin_was[p] = kcoin;
-		// iOS's UIKit/GameController layer is intentionally merged here, before the
+		// iOS touch actions are merged here, before the
 		// same cabinet-bit conversion used by keyboard and SDL gamepads.
 #if defined(VF2_IOS)
 		if (ios) {
@@ -365,6 +366,7 @@ hotkey read_inputs(model2a &m, SDL_Gamepad *pads[2], pad_state ps[2], const play
 				if (ios->down[p][a]) in[1 + p] |= BITS[a];
 			static bool ios_start_was[2], ios_coin_was[2];
 			if (ios->down[p][C_START] && !ios_start_was[p]) press_start();
+			start_held |= ios->down[p][C_START];
 			ios_start_was[p] = ios->down[p][C_START];
 			if (ios->down[p][C_COIN] && !ios_coin_was[p] && !g_pc_mode) st.coin_frames = 6;
 			ios_coin_was[p] = ios->down[p][C_COIN];
@@ -572,6 +574,7 @@ struct settings
 	std::string gpu3d_failed;   // SDL_GPU's drivers whose 3D failed here ("direct3d12 vulkan"): the next start tries the next
 	std::string roms_folder;   // where the player keeps vf2.zip (roms_folder = ...: kept as written)
 	int arcade_coin = -2;   // the arcade way's coin setting, kept while the PC way has FREE PLAY in its place (-1: none to give back; -2: none kept yet)   // the render scale this machine needed pipelining at (the governor's, kept: a start there starts pipelined)
+	bool pads_swapped = false;
 	bool fullscreen = false, timings = false, arcade = false, smooth_bg = false, show_fps = false, smooth = true;
 	player_controls ctl[2] = { player_controls::defaults(0), player_controls::defaults(1) };
 
@@ -625,6 +628,7 @@ struct settings
 		if (secret != 9 && secret != 11 && secret != 12) secret = 0;
 		if (ring && (ring < 1300 || ring % 100)) ring = 0;   // 0: by difficulty
 		flag("fullscreen", fullscreen);
+		flag("pads_swapped", pads_swapped);
 		flag("frame_timings", timings);
 		flag("arcade_mode", arcade);
 		flag("background_filter", smooth_bg);
@@ -657,7 +661,7 @@ struct settings
 		}
 		fprintf(f, "# Virtua Fighter 2 settings (the in-game menu writes these)\n");
 		fprintf(f, "settings_version = %d\n", version);
-		fprintf(f, "ios_resolution = %d\nbrightness = %d\n", ios_resolution, brightness);
+		fprintf(f, "ios_resolution = %d\nbrightness = %d\npads_swapped = %d\n", ios_resolution, brightness, int(pads_swapped));
 		fprintf(f, "scale = %d\npicture_shape = %d\nfullscreen = %d\nframe_timings = %d\nvolume = %d\narcade_mode = %d\n"
 				"background_filter = %d\nmusic_volume = %d\neffects_volume = %d\nantialiasing = %d\nshow_fps = %d\nscreen_filter = %d\nring_size = %d\nsmooth_motion = %d\npipelined_at = %d\narcade_coins = %d\n", scale, aspect,
 				int(fullscreen), int(timings), volume, int(arcade), int(smooth_bg), music, effects, aa, int(show_fps), filter, ring, int(smooth), pipelined_at, arcade_coin);
@@ -1982,71 +1986,8 @@ int main(int argc, char **argv)
 	// pixels (made again when the picture's size changes). Scanlines darkens between the arcade's 384
 	// lines; CRT adds an aperture grille (red, green and blue stripes) and slightly darker corners.
 	const char *FILTER_NAMES[] = { "Off", "Scanlines", "CRT" };
-	SDL_Texture *glass = nullptr;
-	int glass_w = 0, glass_h = 0, glass_kind = 0;
-	auto draw_filter = [&] {
-		SDL_FRect r;
-		if (!cfg.filter || !SDL_GetRenderLogicalPresentationRect(ren, &r)) return;
-		const int w = int(std::lround(r.w)), h = int(std::lround(r.h));
-		if (w < 1 || h < 1) return;
-		if (!glass || w != glass_w || h != glass_h || cfg.filter != glass_kind) {
-			if (glass) SDL_DestroyTexture(glass);
-			glass = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, w, h);
-			if (!glass) return;
-			glass_w = w; glass_h = h; glass_kind = cfg.filter;
-			const bool crt = cfg.filter == 2;
-			// the lines want a couple of pixels each to show: they fade in from 1.5 to 3 per line
-			const float per_line = h / 384.0f;
-			const float depth = (crt ? 0.45f : 0.6f) * std::clamp((per_line - 1.5f) / 1.5f, 0.0f, 1.0f);
-			// The lines are a whole number of screen pixels apart: the picture's lines to the nearest,
-			// so every line looks the same. Sampled at a fraction of a line apart (the Steam Deck's
-			// 800-pixel screen: 2.08 pixels a line), the pattern beat into uneven bands every dozen
-			// lines. At a whole number of pixels a line this is the picture's own lines, as before;
-			// two pixels a line: a bright row and a dark one.
-			const int period = std::max(1, int(std::lround(per_line)));
-			std::vector<float> row(h);
-			for (int y = 0; y < h; y++) {
-				const float f = period == 2 ? float(y % 2) * 0.5f : (float(y % period) + 0.5f) / float(period);
-				row[y] = 1 - depth * (1 - std::sin(f * 3.14159265f));   // 1 mid-line, darker at its edges
-			}
-			auto glass_at = [&](int x, int y, float rgb[3]) {
-				rgb[0] = rgb[1] = rgb[2] = row[y];
-				if (!crt) return;
-				for (int c = 0; c < 3; c++) if (c != x % 3) rgb[c] *= 0.78f;   // the grille: one colour per pixel column
-				const float dx = (x + 0.5f) / w * 2 - 1, dy = (y + 0.5f) / h * 2 - 1;
-				const float d = std::min(1.0f, (dx * dx + dy * dy) / 2);
-				for (int c = 0; c < 3; c++) rgb[c] *= 1 - 0.22f * d * d;      // the corners
-			};
-			// Multiplying only darkens: drawn as twice the product instead (dst * glass * 2), the glass
-			// also brightens the middle of each line, so the picture keeps about its brightness.
-			const SDL_BlendMode times2 = SDL_ComposeCustomBlendMode(SDL_BLENDFACTOR_DST_COLOR, SDL_BLENDFACTOR_SRC_COLOR,
-				SDL_BLENDOPERATION_ADD, SDL_BLENDFACTOR_ZERO, SDL_BLENDFACTOR_ONE, SDL_BLENDOPERATION_ADD);
-			const bool doubled = SDL_SetTextureBlendMode(glass, times2);
-			if (!doubled) SDL_SetTextureBlendMode(glass, SDL_BLENDMODE_MOD);   // a renderer without it: darker
-			float gain = 1;
-			if (doubled) {
-				double sum = 0; int n = 0;
-				for (int y = 0; y < h; y += 3)
-					for (int x = 0; x < w; x += 7) { float v[3]; glass_at(x, y, v); sum += v[0] + v[1] + v[2]; n += 3; }
-				gain = std::min(1.4f, float(n / sum));
-			}
-			const float k = 255 * gain / (doubled ? 2 : 1);
-			std::vector<uint32_t> px(size_t(w) * h);
-			parallel_rows(h, [&](int y0, int y1) {   // on every core: a 4K window's is ~20 ms on one
-				for (int y = y0; y < y1; y++)
-					for (int x = 0; x < w; x++) {
-						float v[3];
-						glass_at(x, y, v);
-						uint32_t c[3];
-						for (int i = 0; i < 3; i++) c[i] = uint32_t(std::min(255.0f, v[i] * k + 0.5f));
-						px[size_t(y) * w + x] = 0xff000000u | c[0] << 16 | c[1] << 8 | c[2];
-					}
-			}, 4);
-			SDL_UpdateTexture(glass, nullptr, px.data(), w * 4);
-			SDL_SetTextureScaleMode(glass, SDL_SCALEMODE_NEAREST);
-		}
-		SDL_RenderTexture(ren, glass, nullptr, nullptr);   // over the picture (the logical area), under the menu
-	};
+	screen_filter screen_glass(ren);
+	auto draw_filter = [&] { screen_glass.draw(cfg.filter); };
 
 	SDL_AudioStream *audio = nullptr;
 	if (sound) {
@@ -2068,7 +2009,7 @@ int main(int argc, char **argv)
 	constexpr double QUEUED = 3.5;
 
 	SDL_Gamepad *pads[2] = { nullptr, nullptr };
-	bool pads_swapped = false;           // two pads that look alike (same GUID): swapped by hand
+	bool &pads_swapped = cfg.pads_swapped; // two pads that look alike (same GUID): swapped by hand
 	auto guid_of = [](SDL_JoystickID id) {
 		char g[64];
 		SDL_GUIDToString(SDL_GetGamepadGUIDForID(id), g, sizeof g);
@@ -2682,7 +2623,7 @@ int main(int argc, char **argv)
 								 auto choice = [&](int p) { return pads[p] ? guid_of(SDL_GetGamepadID(pads[p])) : std::string("none"); };
 								 std::string a = choice(0), b = choice(1);
 								 if (a == b) {          // alike (same model, Steam Input): swap who holds which
-									 pads_swapped = !pads_swapped;
+									 pads_swapped = !pads_swapped; cfg_dirty = true;
 									 std::swap(pads[0], pads[1]);
 									 return;
 								 }
@@ -2830,7 +2771,7 @@ int main(int argc, char **argv)
 		gpu_pic.lost();
 		g3_free();
 		gpu.shown = false;
-		if (glass) { SDL_DestroyTexture(glass); glass = nullptr; glass_w = glass_h = 0; }
+		screen_glass.clear();
 		menu.textures_lost();
 		if (!make_texture()) { running = false; return; }
 		redraw_shown();
@@ -2930,11 +2871,6 @@ int main(int argc, char **argv)
 #endif
 		SDL_Event e;
 		while (SDL_PollEvent(&e)) {
-#if defined(VF2_IOS)
-			// GCController owns Options/Menu; don't toggle it twice via SDL's Back event.
-			if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && e.gbutton.button == SDL_GAMEPAD_BUTTON_BACK) continue;
-
-#endif
 			if (e.type == SDL_EVENT_QUIT) running = false;
 			else if (e.type == SDL_EVENT_RENDER_DEVICE_RESET || e.type == SDL_EVENT_RENDER_TARGETS_RESET) textures_lost(e.type == SDL_EVENT_RENDER_DEVICE_RESET);
 			else if (e.type == SDL_EVENT_RENDER_DEVICE_LOST) { fprintf(stderr, "the graphics device was lost: closing\n"); running = false; }
@@ -3095,11 +3031,7 @@ int main(int argc, char **argv)
 			uint8_t ports[input_script::N_PORTS];
 			script.apply(game_frame, ports);
 			uint8_t live[3];
-#if defined(VF2_IOS)
-			SDL_Gamepad *game_pads[2]{}; // GCController owns game input; SDL still handles menu navigation.
-#else
 			SDL_Gamepad **game_pads = pads;
-#endif
 			const hotkey hk = read_inputs(m, game_pads, pstate, cfg.ctl, live
 #if defined(VF2_IOS)
 				, &ios
@@ -3794,6 +3726,8 @@ int main(int argc, char **argv)
 #if defined(VF2_IOS)
 	ios_input_uninstall();
 #endif
+	screen_glass.clear();
+	gpu_pic.free();
 	SDL_Quit();
 	return native_video_error ? 1 : 0;
 }

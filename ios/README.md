@@ -39,7 +39,7 @@ and packages the app under `Payload/` without ROMs or signing credentials.
 It runs manually or when its own workflow file changes on `ios-port`, only in
 the personal fork. The artifact expires after three days; no release is published.
 
-The resulting `VirtuaFighter2-build5-unsigned.ipa` requires personal re-signing
+The resulting `VirtuaFighter2-build6-unsigned.ipa` requires personal re-signing
 before installation. It contains no provisioning profile and no JIT entitlement.
 The source commit is recorded inside `BUILD-INFO.json`. Packaging does not prove
 working gameplay or device performance. The original compile-only workflow
@@ -98,13 +98,14 @@ do not redirect iOS persistence. User-imported archives never enter CI.
 ## Input and lifecycle
 
 SDL owns the window, event pump, renderer, audio and menu navigation.
-`VF2InputBridge` polls GameController on the main thread, maintains two stable
-controller slots and merges physical inputs with a UIKit touch overlay. The
-host samples it every outer loop, including while the game menu is paused.
-SDL handles menu navigation; it does not duplicate GCController game inputs.
+`VF2InputBridge` supplies UIKit touch actions and observes GameController
+connection state for overlay visibility. Physical gamepad input uses the shared
+SDL mapping path, including player selection, button remapping and pad swaps.
+SDL also handles menu navigation. The bridge does not inject a second fixed
+physical mapping that would bypass the Controls menu.
 
 Default controller mapping: D-pad/left stick move; X/A/B = Guard/Punch/Kick;
-Y = Guard+Punch; LB/LT = Guard+Kick; RB = Punch+Kick; RT = all three;
+Y = Guard+Punch; LB = Guard+Kick; RB = Punch+Kick; RT = all three;
 Menu = Start; Options = game menu. The touch overlay supplies directions,
 Guard/Punch/Kick, Start, Coin and Menu. Controls respect window safe-area
 insets; unused overlay space passes touches to SDL, and only Menu remains
@@ -142,3 +143,19 @@ This chat's remote workspace is not itself a published Codex Cloud environment
 or a registered Codex Cloud task. For a separate Codex Cloud task, select the
 personal repository and `ios-port` from a published environment, read
 `AGENTS.md`, and continue from the branch head without touching upstream.
+
+## Options validation
+
+See `OPTIONS_AUDIT.md` for every category's source wiring, persistence and
+runtime-test limits. High refresh rate is enabled through
+`CADisableMinimumFrameDurationOnPhone`; the pinned SDL UIKit backend requests
+the display's maximum rate. This permits 120 Hz on supported iPhones, without
+guaranteeing sustained 120 fps under every game load or system power state.
+FPS text uses the upper-left safe area in physical pixels on iOS, outside the
+notch/rounded corners and away from the touch controls on the right.
+
+Background filtering is also enabled for native output whose board scale is
+1; the GPU then performs linear sampling during enlargement. Screen-filter
+normalization samples all row phases, so a three-pixel scanline period cannot
+normalize away its dark rows. Tests use a checkerboard background and real
+readback of Scanlines/CRT outputs rather than constant-color filter tests only.

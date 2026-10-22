@@ -9,28 +9,6 @@ ios_input_snapshot g_input;
 bool g_installed = false;
 bool g_menu_open = false;
 bool g_controller_connected = false;
-bool menu_was[2]{};
-GCController *slots[2];
-
-void sample(GCExtendedGamepad *pad, int player, ios_input_snapshot &input)
-{
-	if (!pad) return;
-	auto button = [&](GCControllerButtonInput *b, control_action action) {
-		input.down[player][action] |= b && b.pressed;
-	};
-	for (GCControllerDirectionPad *d in @[pad.dpad, pad.leftThumbstick]) {
-		button(d.up, C_UP); button(d.down, C_DOWN);
-		button(d.left, C_LEFT); button(d.right, C_RIGHT);
-	}
-	button(pad.buttonX, C_GUARD); button(pad.buttonA, C_PUNCH); button(pad.buttonB, C_KICK);
-	button(pad.buttonY, C_GUARD_PUNCH); button(pad.leftShoulder, C_GUARD_KICK);
-	button(pad.rightShoulder, C_PUNCH_KICK); button(pad.leftTrigger, C_GUARD_KICK);
-	button(pad.rightTrigger, C_ALL_THREE); button(pad.buttonMenu, C_START);
-	const bool menu = pad.buttonOptions.pressed;
-	input.menu_pressed |= menu && !menu_was[player];
-	menu_was[player] = menu;
-}
-
 } // namespace
 
 @interface VF2TouchButton : UIButton
@@ -129,7 +107,6 @@ void ios_input_install(SDL_Window *window)
 void ios_input_reset()
 {
 	g_input = {};
-	menu_was[0] = menu_was[1] = false;
 }
 
 void ios_input_set_menu(bool open)
@@ -144,7 +121,6 @@ void ios_input_uninstall()
 	ios_input_reset();
 	[g_overlay removeFromSuperview];
 	g_overlay = nil;
-	slots[0] = slots[1] = nil;
 	g_installed = false;
 	g_menu_open = g_controller_connected = false;
 }
@@ -157,16 +133,7 @@ ios_input_snapshot ios_input_read()
 	update_touch_visibility(connected.count != 0);
 	ios_input_snapshot copy = g_input;
 	g_input.menu_pressed = false;
-	for (int p = 0; p < 2; ++p) {
-		if (slots[p] && ![connected containsObject:slots[p]]) {
-			slots[p] = nil;
-			menu_was[p] = false;
-		}
-	}
-	for (GCController *controller in connected) {
-		if (!controller.extendedGamepad || controller == slots[0] || controller == slots[1]) continue;
-		for (int p = 0; p < 2; ++p) if (!slots[p]) { slots[p] = controller; break; }
-	}
-	for (int p = 0; p < 2; ++p) sample(slots[p].extendedGamepad, p, copy);
+	// Physical controller sampling is owned by SDL and cfg.ctl in the host.
+	// This bridge merges touch actions only, so remaps and player selection work.
 	return copy;
 }

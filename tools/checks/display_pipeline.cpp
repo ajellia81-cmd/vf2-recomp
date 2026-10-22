@@ -1,6 +1,7 @@
 // ROM-free SDL/Metal composition, filter, resize/recreation and brightness checks.
 #include "../../src/host/gpu_picture.h"
 #include "../../src/host/display_color.h"
+#include "../../src/host/screen_filter.h"
 #include <cstdio>
 #include <vector>
 #include <cstdlib>
@@ -76,6 +77,43 @@ int main() {
 			SDL_DestroyTexture(output); SDL_DestroyTexture(ext);
 		}
 	}
+	// A native output at board scale 1 must still visibly smooth a checkerboard.
+	{
+		gpu_picture picture(ren); picture.set_output_size(2868, 1320);
+		for (int y = 0; y < h + 2*pad; ++y) for (int x = 0; x < w + 2*pad; ++x)
+			backdrop[size_t(y)*(w+2*pad)+x] = x % 2 ? 0xffc0c0c0 : 0xff404040;
+		model2a::picture_parts p{}; p.w=w; p.s=1; p.version=100;
+		p.backdrop=backdrop.data(); p.mid=p.top=clear.data();
+		for (bool smooth : {false, true, false}) {
+			p.filter=smooth; require(picture.put(p), "checkerboard background filter");
+			SDL_SetRenderTarget(ren, picture.target());
+			SDL_Surface *raw=SDL_RenderReadPixels(ren,nullptr);
+			require(raw!=nullptr,"checkerboard readback");
+			SDL_Surface *rgb=SDL_ConvertSurface(raw,SDL_PIXELFORMAT_ARGB8888); SDL_DestroySurface(raw);
+			require(rgb!=nullptr,"checkerboard conversion");
+			const u32 *row=reinterpret_cast<u32 *>(static_cast<uint8_t *>(rgb->pixels)+100*rgb->pitch);
+			int between=0;
+			for(int x=32;x<500;++x) {int c=row[x]&255; between += c>64 && c<192;}
+			require(smooth ? between>100 : between==0,"Off/Smooth/Off changes actual native background pixels");
+			SDL_DestroySurface(rgb); SDL_SetRenderTarget(ren,nullptr);
+		}
+	}
+	// Screen filters must change pixels, with a visible scanline contrast at native height.
+	{
+		screen_filter glass(ren);
+		SDL_Texture *target=SDL_CreateTexture(ren,SDL_PIXELFORMAT_ARGB8888,SDL_TEXTUREACCESS_TARGET,96,1320);
+		require(target!=nullptr,"screen filter output");
+		for(int kind : {0,1,2,0}) {
+			SDL_SetRenderTarget(ren,target); prepare_overlay_view(ren);
+			SDL_SetRenderDrawColor(ren,128,128,128,255); SDL_RenderClear(ren);
+			require(glass.draw(kind),"draw screen filter");
+			const u32 a=pixel(ren,target,12,660),b=pixel(ren,target,12,661);
+			if(!kind) require(a==0xff808080 && b==a,"Off restores original screen pixels");
+			if(kind==1) require(std::abs(int(a&255)-int(b&255))>=20,"Scanlines are visible");
+			if(kind==2) require(std::abs(int((b>>16)&255)-int((b>>8)&255))>=10,"CRT RGB stripes are visible");
+		}
+		glass.clear(); SDL_DestroyTexture(target);
+	}
 	SDL_DestroyRenderer(ren); SDL_DestroyWindow(win); SDL_Quit();
-	std::puts("PASS: Metal composition RGB, background filter toggles, 1x-6x/native targets, recreation, stale window/UI coordinates and 100-200% brightness");
+	std::puts("PASS: Metal composition RGB, background filter toggles, 1x-6x/native targets, recreation, stale window/UI coordinates, visible background/screen filters and 100-200% brightness");
 }

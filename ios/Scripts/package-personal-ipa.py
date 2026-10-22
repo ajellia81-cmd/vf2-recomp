@@ -15,6 +15,7 @@ with (app / 'Info.plist').open('rb') as f:
     info = plistlib.load(f)
 assert info['CFBundleIdentifier'] == 'com.ajellia81.vf2recomp'
 assert info['CFBundleSupportedPlatforms'] == ['iPhoneOS']
+assert info.get('CADisableMinimumFrameDurationOnPhone') is True
 assert info['CFBundleDisplayName'] == 'Virtua Fighter 2'
 assert info['CFBundleIcons']['CFBundlePrimaryIcon']['CFBundleIconName'] == 'AppIcon'
 assert (app / 'Assets.car').is_file()
@@ -60,7 +61,7 @@ sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True)
     'signed': False, 'roms_included': False, 'purpose': 'personal use; re-sign before installation',
     'gameplay_device_tested': False,
 }, indent=2) + '\n')
-ipa = out / 'VirtuaFighter2-build5-unsigned.ipa'
+ipa = out / 'VirtuaFighter2-build6-unsigned.ipa'
 subprocess.run(['ditto', '-c', '-k', '--sequesterRsrc', '--keepParent', 'Payload', ipa.name], cwd=out, check=True)
 with zipfile.ZipFile(ipa) as z:
     assert z.testzip() is None
