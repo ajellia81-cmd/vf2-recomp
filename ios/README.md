@@ -39,7 +39,7 @@ and packages the app under `Payload/` without ROMs or signing credentials.
 It runs manually or when its own workflow file changes on `ios-port`, only in
 the personal fork. The artifact expires after three days; no release is published.
 
-The resulting `VirtuaFighter2-build4-unsigned.ipa` requires personal re-signing
+The resulting `VirtuaFighter2-build5-unsigned.ipa` requires personal re-signing
 before installation. It contains no provisioning profile and no JIT entitlement.
 The source commit is recorded inside `BUILD-INFO.json`. Packaging does not prove
 working gameplay or device performance. The original compile-only workflow

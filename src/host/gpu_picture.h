@@ -159,6 +159,9 @@ public:
 		float old_x = 1, old_y = 1;
 		SDL_GetRenderScale(m_ren, &old_x, &old_y);
 		if (!SDL_SetRenderTarget(m_ren, m_target)) return false;
+		SDL_SetRenderLogicalPresentation(m_ren, 0, 0, SDL_LOGICAL_PRESENTATION_DISABLED);
+		SDL_SetRenderViewport(m_ren, nullptr);
+		SDL_SetRenderClipRect(m_ren, nullptr);
 		SDL_SetRenderDrawColor(m_ren, 0, 0, 0, 255);
 		SDL_RenderClear(m_ren);
 		// Keep legacy 2D coordinates, but rasterize the composition directly into

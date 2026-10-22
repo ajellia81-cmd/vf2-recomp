@@ -87,7 +87,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: VF2Recomp-personal-unsigned-${{ github.sha }}
-          path: ios/build/personal/VirtuaFighter2-build4-unsigned.ipa
+          path: ios/build/personal/VirtuaFighter2-build5-unsigned.ipa
           if-no-files-found: error
           retention-days: 3
           compression-level: 0

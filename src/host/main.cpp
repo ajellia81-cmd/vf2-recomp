@@ -1069,6 +1069,11 @@ int main(int argc, char **argv)
 	SDL_Window *win = SDL_CreateWindow("Virtua Fighter 2", win_w, win_h,
 		SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY | (fullscreen ? SDL_WINDOW_FULLSCREEN : 0) | SDL_WINDOW_HIDDEN);
 	if (!win) return fail(std::string("Couldn't open the window: ") + SDL_GetError());
+#if defined(VF2_IOS)
+	// Cold launches do not have the importer's already-visible UIKit window.
+	// Resolve fullscreen geometry before Metal/SDL chooses its drawable size.
+	if (!hidden) { SDL_ShowWindow(win); SDL_SyncWindow(win); SDL_PumpEvents(); }
+#endif
 	SDL_HideCursor();
 	int focus_checks = 600;   // about 5 s: going fullscreen on a Mac moves to a new Space, which takes a while
 	SDL_Renderer *ren = nullptr;
@@ -1221,7 +1226,7 @@ int main(int argc, char **argv)
 	// letterboxed in the window
 	auto present_shape = [&] {
 #if defined(VF2_IOS)
-		SDL_SetRenderLogicalPresentation(ren, ios_video::WIDTH, ios_video::HEIGHT, SDL_LOGICAL_PRESENTATION_LETTERBOX);
+		prepare_game_view(ren, ios_video::WIDTH, ios_video::HEIGHT);
 		return;
 #endif
 		SDL_SetRenderLogicalPresentation(ren, int(std::lround(384.0 * m.width() / 372.0)), 384, SDL_LOGICAL_PRESENTATION_LETTERBOX);
@@ -2939,7 +2944,13 @@ int main(int argc, char **argv)
 				set_fullscreen(!(SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN));
 			else if (menu.handle_event(e)) continue;
 			else if (e.type == SDL_EVENT_GAMEPAD_ADDED || e.type == SDL_EVENT_GAMEPAD_REMOVED) { open_pads(); menu.refresh(); }
-			else if (e.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED && !aspect_i && apply_aspect()) reshape();
+			else if (e.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED) {
+#if defined(VF2_IOS)
+				present_shape(); // Fixed aspect does not imply unchanged drawable geometry.
+#else
+				if (!aspect_i && apply_aspect()) reshape();
+#endif
+			}
 			else if (e.type == SDL_EVENT_WINDOW_ENTER_FULLSCREEN || e.type == SDL_EVENT_WINDOW_LEAVE_FULLSCREEN) {
 				menu.refresh();
 				if (SDL_GetKeyboardFocus() != win) SDL_RaiseWindow(win);   // (the move to a new Space can lose it)
@@ -3416,6 +3427,9 @@ int main(int argc, char **argv)
 		}
 #endif
 		const uint64_t tb = SDL_GetTicksNS();
+#if defined(VF2_IOS)
+		present_shape(); // Never inherit composition/menu scale, viewport or scissor.
+#endif
 		SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
 		SDL_RenderClear(ren);
 		draw_game_picture(ren, gpu.shown ? gpu_pic.target() : tex, cfg.brightness);

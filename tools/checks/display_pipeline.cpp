@@ -60,9 +60,22 @@ int main() {
 				const uint32_t expected = brightness == 100 ? 0xff204060 : brightness == 150 ? 0xff306090 : 0xff4080c0;
 				require(pixel(ren, output, 16, 32) == expected, "brightness RGB including boost above 100%");
 			}
+			// Simulate leaked composition/UI coordinates before drawing to the window.
+			const SDL_Rect stale{0, 0, 8, 8};
+			SDL_SetRenderScale(ren, 4, 4);
+			SDL_SetRenderViewport(ren, &stale);
+			SDL_SetRenderClipRect(ren, &stale);
+			require(prepare_game_view(ren, 2868, 1320), "reset stale window state");
+			require(draw_game_picture(ren, picture.target(), 100), "full game view");
+			SDL_FRect area{};
+			require(SDL_GetRenderLogicalPresentationRect(ren, &area), "game viewport");
+			require(pixel(ren, nullptr, int(area.x + area.w/4), int(area.y + area.h/2)) == 0xff204060, "full picture after stale scale/clip");
+			require(prepare_overlay_view(ren), "UI pixel coordinates");
+			float sx = 0, sy = 0; SDL_GetRenderScale(ren, &sx, &sy);
+			require(sx == 1 && sy == 1 && !SDL_RenderClipEnabled(ren) && !SDL_RenderViewportSet(ren), "UI is not enlarged or clipped");
 			SDL_DestroyTexture(output); SDL_DestroyTexture(ext);
 		}
 	}
 	SDL_DestroyRenderer(ren); SDL_DestroyWindow(win); SDL_Quit();
-	std::puts("PASS: Metal composition RGB, background filter toggles, 1x-6x/native targets, recreation and 100-200% brightness");
+	std::puts("PASS: Metal composition RGB, background filter toggles, 1x-6x/native targets, recreation, stale window/UI coordinates and 100-200% brightness");
 }

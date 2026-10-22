@@ -1,3 +1,4 @@
+#include "display_color.h"
 #include "menu.h"
 #include <RmlUi/Core.h>
 #include "RmlUi_Platform_SDL.h"
@@ -381,7 +382,14 @@ void game_menu::render()
 	int lw = 0, lh = 0;
 	SDL_RendererLogicalPresentation mode = SDL_LOGICAL_PRESENTATION_DISABLED;
 	SDL_GetRenderLogicalPresentation(m->ren, &lw, &lh, &mode);
-	SDL_SetRenderLogicalPresentation(m->ren, 0, 0, SDL_LOGICAL_PRESENTATION_DISABLED);
+	float sx = 1, sy = 1;
+	SDL_GetRenderScale(m->ren, &sx, &sy);
+	SDL_Rect viewport{}, clip{};
+	const bool viewport_set = SDL_RenderViewportSet(m->ren);
+	const bool clip_set = SDL_RenderClipEnabled(m->ren);
+	SDL_GetRenderViewport(m->ren, &viewport);
+	SDL_GetRenderClipRect(m->ren, &clip);
+	prepare_overlay_view(m->ren);
 	int w = 0, h = 0;
 	SDL_GetCurrentRenderOutputSize(m->ren, &w, &h);
 	m->ctx->SetDimensions(Rml::Vector2i(w, h));
@@ -391,4 +399,7 @@ void game_menu::render()
 	m->ctx->Render();
 	m->gfx->EndFrame();
 	SDL_SetRenderLogicalPresentation(m->ren, lw, lh, mode);
+	SDL_SetRenderScale(m->ren, sx, sy);
+	SDL_SetRenderViewport(m->ren, viewport_set ? &viewport : nullptr);
+	SDL_SetRenderClipRect(m->ren, clip_set ? &clip : nullptr);
 }
