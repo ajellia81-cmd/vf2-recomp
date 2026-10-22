@@ -198,3 +198,19 @@ Metal tests, composition/filter/brightness tests, controls persistence and two
 import XCTest cases passed. Downloaded IPA ZIP/hash, build number and source
 metadata match the successful runner output. No ROM data was used or included;
 iOS execution remains interpreter-only. The IPA is unsigned for personal use.
+
+## Build 8: original resolution order and selectable aspect
+
+- Source: cd6223015be017edf501864e69409a94149325b3
+- Successful Apple build: https://github.com/ajellia81-cmd/vf2-recomp/actions/runs/39788596939
+- IPA: VirtuaFighter2-build8-unsigned.ipa (6135779 bytes)
+- SHA-256: 5359f7be8fe554dc560dcf2e0a89800a9854c0e29bf890373bf9754e18257226
+
+Resolution choices are 1x, 2x, 3x, 4x, 5x, 6x, then 2868 x 1320 (iPhone).
+Every choice, including iPhone output, follows Picture shape: Fit the window,
+4:3, 16:10, 16:9 or 21:9. VF2's former hidden Picture shape is restored and
+no longer reset at launch. All saved resolution keys retain their old meaning.
+Apple compilation, Metal composition/filter/brightness checks, controls and two
+simulator import tests passed. Downloaded ZIP, build/source metadata and SHA-256
+match the runner. Physical-device gameplay has not been tested by CI.
+Interpreter-only execution, no ROM inclusion, personal unsigned use only.
