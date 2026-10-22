@@ -38,7 +38,7 @@ and packages the app under `Payload/` without ROMs or signing credentials.
 It runs manually or when its own workflow file changes on `ios-port`, only in
 the personal fork. The artifact expires after three days; no release is published.
 
-The resulting `VF2Recomp-2868x1320-unsigned.ipa` requires personal re-signing
+The resulting `VF2Recomp-2868x1320-import-fix-unsigned.ipa` requires personal re-signing
 before installation. It contains no provisioning profile and no JIT entitlement.
 The source commit is recorded inside `BUILD-INFO.json`. Packaging does not prove
 working gameplay or device performance. The original compile-only workflow
@@ -73,8 +73,11 @@ with actual game data and sustained audio timing remain unmeasured on iOS.
 On startup the host uses only
 `Library/Application Support/Virtua Fighter 2 Recomp/roms/vf2.zip`.
 If that archive is absent or invalid, a temporary SDL UIKit window presents
-`UIDocumentPickerViewController` for ZIP files. The source URL is accessed only
-during coordinated copying to a unique temporary sandbox file. The existing
+`UIDocumentPickerViewController` for ZIP files. The picker requests an imported copy and accepts generic data types so providers
+that mislabel ZIP archives do not disable selection. The archive is still fully
+validated by content. Copying and CRC checks run on a background queue with a
+visible progress indicator; UIKit completion and dismissal stay on the main
+thread. The source URL is accessed only during coordinated copying to a unique temporary sandbox file. The existing
 `romset::load` validates names and CRCs; a successful copy atomically replaces
 the sandbox archive. Failed copies/validation are removed and an existing
 archive is preserved on installation failure. No external bookmark is stored.

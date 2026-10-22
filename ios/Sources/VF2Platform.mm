@@ -3,6 +3,21 @@
 #include "../../src/host/ios_platform.h"
 #include <SDL3/SDL.h>
 
+// UIDocumentPicker dismisses itself. Only dismiss a controller that is still
+// present, and wait for an active dismissal before showing an error/retrying.
+static void after_import_modal(UIViewController *presenter, dispatch_block_t completion)
+{
+	UIViewController *modal = presenter.presentedViewController;
+	if (!modal) { completion(); return; }
+	if (modal.isBeingDismissed) {
+		dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+			after_import_modal(presenter, completion);
+		});
+		return;
+	}
+	[presenter dismissViewControllerAnimated:NO completion:completion];
+}
+
 std::string ios_data_directory()
 {
 	NSURL *url = [[VF2ROMImport sandboxROMURL] URLByDeletingLastPathComponent];
@@ -31,22 +46,22 @@ std::string ios_import_rom()
 		[VF2ROMImport presentFrom:presenter completion:^(NSURL *url, NSString *error) {
 			if (url) selected = url.path.UTF8String;
 			if (error) SDL_SetError("%s", error.UTF8String);
-			[presenter dismissViewControllerAnimated:NO completion:^{
+			after_import_modal(presenter, ^{
 				if (!error) { done = true; return; }
 				UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Unable to import archive"
 					message:error preferredStyle:UIAlertControllerStyleAlert];
 				[alert addAction:[UIAlertAction actionWithTitle:@"Choose another file" style:UIAlertActionStyleDefault
-					handler:^(UIAlertAction *) { again = true; [presenter dismissViewControllerAnimated:NO completion:^{ done = true; }]; }]];
+					handler:^(UIAlertAction *) { again = true; after_import_modal(presenter, ^{ done = true; }); }]];
 				[alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel
-					handler:^(UIAlertAction *) { [presenter dismissViewControllerAnimated:NO completion:^{ done = true; }]; }]];
+					handler:^(UIAlertAction *) { after_import_modal(presenter, ^{ done = true; }); }]];
 				[presenter presentViewController:alert animated:YES completion:nil];
-			}];
+			});
 		}];
-		// SDL's iOS event pump services UIKit on this main thread, including document providers.
+		// Service UIKit and main-queue import completions while the host waits.
 		// Keep the window and block state alive until import/error handling is complete.
 		while (!done) {
 			SDL_PumpEvents();
-			SDL_Delay(10);
+			CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.01, true);
 		}
 		result = selected;
 		retry = again;

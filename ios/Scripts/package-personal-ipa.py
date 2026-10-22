@@ -57,7 +57,7 @@ sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True)
     'signed': False, 'roms_included': False, 'purpose': 'personal use; re-sign before installation',
     'gameplay_device_tested': False,
 }, indent=2) + '\n')
-ipa = out / 'VF2Recomp-2868x1320-unsigned.ipa'
+ipa = out / 'VF2Recomp-2868x1320-import-fix-unsigned.ipa'
 subprocess.run(['ditto', '-c', '-k', '--sequesterRsrc', '--keepParent', 'Payload', ipa.name], cwd=out, check=True)
 with zipfile.ZipFile(ipa) as z:
     assert z.testzip() is None
