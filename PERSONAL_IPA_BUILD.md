@@ -214,3 +214,18 @@ Apple compilation, Metal composition/filter/brightness checks, controls and two
 simulator import tests passed. Downloaded ZIP, build/source metadata and SHA-256
 match the runner. Physical-device gameplay has not been tested by CI.
 Interpreter-only execution, no ROM inclusion, personal unsigned use only.
+
+## Build 9: touch Menu transition fix
+
+- Source: 8b67621c5417b0571fd924a5cb3ba22d35034fb4
+- Successful Apple build: https://github.com/ajellia81-cmd/vf2-recomp/actions/runs/39810666798
+- IPA: VirtuaFighter2-build9-unsigned.ipa (6135786 bytes)
+- SHA-256: 85d6a449069beed41718efe84b748868b3491b1feb001f8a151bbd9f23173071
+
+The UIKit bridge releases gameplay buttons when entering the menu without
+erasing a pending Menu tap, including repeated updates while the menu stays open.
+The actual transition-helper check, Metal/composition/filter/brightness checks,
+controls persistence, Apple builds and two simulator import cases passed.
+Downloaded ZIP integrity, build number, source identity and SHA-256 were verified.
+The IPA contains no ROM data and remains interpreter-only and unsigned for
+personal use. CI does not establish physical-device gameplay or performance.
