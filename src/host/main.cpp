@@ -1217,10 +1217,7 @@ static int run_game(int argc, char **argv, bool &quit_application)
 		return h > 0 ? std::clamp(float(w) / float(h), 4.0f / 3.0f, 32.0f / 9.0f) : 16.0f / 9.0f;
 	};
 	auto apply_aspect = [&] {   // true if the picture's shape changed
-		float a = ASPECTS[aspect_i] > 0 ? ASPECTS[aspect_i] : window_aspect();
-#if defined(VF2_IOS)
-		if (!cfg.ios_resolution) a = ios_video::ASPECT;
-#endif
+		const float a = ASPECTS[aspect_i] > 0 ? ASPECTS[aspect_i] : window_aspect();
 		if (std::fabs(a - m.aspect()) < 0.001f) return false;
 		const int ext = m.side_columns();
 		m.set_aspect(a);
@@ -1231,7 +1228,7 @@ static int run_game(int argc, char **argv, bool &quit_application)
 	// letterboxed in the window
 	auto present_shape = [&] {
 #if defined(VF2_IOS)
-		prepare_game_view(ren, int(std::lround(384.0 * m.width() / 372.0)), 384, cfg.ios_resolution == 0);
+		prepare_game_view(ren, int(std::lround(384.0 * m.width() / 372.0)), 384);
 		return;
 #endif
 		SDL_SetRenderLogicalPresentation(ren, int(std::lround(384.0 * m.width() / 372.0)), 384, SDL_LOGICAL_PRESENTATION_LETTERBOX);
@@ -2287,7 +2284,7 @@ static int run_game(int argc, char **argv, bool &quit_application)
 	auto display_page = [&] {
 		menu_page p{ "Display", "", {} };
 #if defined(VF2_IOS)
-		p.items.push_back({ "Resolution", "Original 1x-6x render scales use Picture shape. The last option, 2868 x 1320, renders directly and fills the screen regardless of Picture shape.",
+		p.items.push_back({ "Resolution", "Original 1x-6x render scales, followed by direct 2868 x 1320 rendering. All resolutions honor Picture shape.",
 			[&] { return cfg.ios_resolution ? std::to_string(cfg.ios_resolution) + "x" : std::string("2868 x 1320 (iPhone)"); },
 			[&](int d) {
 				finish_async(false);

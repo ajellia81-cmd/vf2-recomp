@@ -27,16 +27,6 @@ int main() {
 	require(win != nullptr, "window");
 	SDL_Renderer *ren = SDL_CreateRenderer(win, "metal");
 	require(ren != nullptr, "Metal renderer");
-
- // A saved fixed shape letterboxes; only the iPhone choice fills any drawable.
- for (bool native : {false, true, false, true}) {
-  SDL_Renderer *view = ren;
-  require(prepare_game_view(view, 512, 288, native), "presentation choice");
-  int width=0,height=0; require(SDL_GetRenderOutputSize(view,&width,&height), "drawable size");
-  SDL_FRect rect{}; require(SDL_GetRenderLogicalPresentationRect(view,&rect), "presentation rectangle");
-  if(native) { require(rect.x==0 && rect.y==0 && rect.w==width && rect.h==height, "native fills drawable"); }
-  else { require(rect.w < width || rect.h < height, "fixed aspect letterboxes"); }
- }
 	constexpr int w = 808, h = 384, pad = model2a::picture_parts::PAD;
 	std::vector<u32> backdrop(size_t(w + 2*pad) * (h + 2*pad), 0xff204060);
 	std::vector<u32> clear(size_t(w) * h, 0);
