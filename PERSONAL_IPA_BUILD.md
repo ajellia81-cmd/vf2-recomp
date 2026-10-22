@@ -48,3 +48,28 @@ unsigned Debug simulator compilation, packaging and downloaded ZIP/hash checks
 also passed. Physical-device document-provider interaction, tapping Open, valid
 ROM import and gameplay remain unverified; no claim is made that the user's
 specific picker failure was reproduced on their device.
+
+## App identity and conditional touch controls (build 3)
+
+- Source: `9dbfd76d245dda3c836084b41806fe72c047518c`.
+- Successful IPA workflow: https://github.com/ajellia81-cmd/vf2-recomp/actions/runs/39747373963
+- Successful device/simulator compile checks: https://github.com/ajellia81-cmd/vf2-recomp/actions/runs/39747374241
+- Output: `VirtuaFighter2-build3-unsigned.ipa` (6,132,437 bytes).
+- SHA-256: `0305240296bb756c0082d28bb67ba7b6383edc8083eb013328d0d70535e82dba`.
+
+Display and bundle names are `Virtua Fighter 2`. The user's original opaque,
+white-background artwork is converted into an AppIcon asset catalog. The
+completed IPA contains compiled icon assets and declares AppIcon as its primary
+icon; its downloaded ZIP, source metadata, names, version and hash were checked.
+
+The touch overlay is attached after SDL creates its render view and kept in
+front when visible. It shows directions, Guard/Punch/Kick, Coin/Start/Menu only
+without a connected controller; connecting/disconnecting clears held touch
+input and changes visibility. Menu mode retains only the Menu button while
+no controller is connected. The bundle identifier is unchanged for updates.
+
+Native 2868 x 1320 Metal tests, two document-import XCTest cases and both Apple
+SDK compilation configurations passed. Actual touch gestures and controller
+hot-plug behavior for this build remain unverified on a physical iPhone. The
+user reported successful execution of the preceding import-fix build. Execution
+remains interpreter-only, and no ROM is included.
