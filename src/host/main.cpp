@@ -1063,10 +1063,6 @@ int main(int argc, char **argv)
 	SDL_Window *win = SDL_CreateWindow("Virtua Fighter 2", win_w, win_h,
 		SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY | (fullscreen ? SDL_WINDOW_FULLSCREEN : 0) | SDL_WINDOW_HIDDEN);
 	if (!win) return fail(std::string("Couldn't open the window: ") + SDL_GetError());
-	// The UIKit overlay is optional input only; SDL continues to own the game window.
-#if defined(VF2_IOS)
-	ios_input_install(win);
-#endif
 	SDL_HideCursor();
 	int focus_checks = 600;   // about 5 s: going fullscreen on a Mac moves to a new Space, which takes a while
 	SDL_Renderer *ren = nullptr;
@@ -1190,6 +1186,11 @@ int main(int argc, char **argv)
 #endif
 	if (!ren) ren = SDL_CreateRenderer(win, nullptr);
 	if (!ren) return fail(std::string("Couldn't start the graphics: ") + SDL_GetError());
+#if defined(VF2_IOS)
+	// SDL creates/replaces its UIKit render view while starting the renderer.
+	// Attach touch controls afterwards so they sit above that view.
+	ios_input_install(win);
+#endif
 	SDL_SetRenderVSync(ren, getenv("VF2_NO_VSYNC") ? 0 : 1);   // (VF2_NO_VSYNC=1: tests, as a driver forcing it off)
 	// The picture's shape: the chosen one, or the window's (fit: between 4:3 and 32:9)
 	auto window_aspect = [&] {

@@ -9,3 +9,5 @@ build/
 ios/Dependencies/*.xcframework/
 ios/VF2Recomp.xcodeproj/
 ios/build/
+
+ios/Generated/Assets.xcassets/

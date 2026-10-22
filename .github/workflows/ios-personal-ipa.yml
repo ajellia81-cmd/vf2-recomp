@@ -55,6 +55,7 @@ jobs:
         run: |
           mkdir -p ios/build
           sh ios/Scripts/preflight.sh
+          python3 ios/Scripts/prepare-app-icon.py
           xcodegen generate --spec ios/project.yml
           python3 ios/Scripts/verify-project.py
       - name: Compile unsigned iPhone app (no archive or export)
@@ -79,7 +80,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: VF2Recomp-personal-unsigned-${{ github.sha }}
-          path: ios/build/personal/VF2Recomp-2868x1320-import-fix-unsigned.ipa
+          path: ios/build/personal/VirtuaFighter2-build3-unsigned.ipa
           if-no-files-found: error
           retention-days: 3
           compression-level: 0

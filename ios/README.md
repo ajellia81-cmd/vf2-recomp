@@ -17,6 +17,7 @@ for dependency preparation or unsigned compilation.
 ```sh
 sh ios/Scripts/prepare-dependencies.sh
 sh ios/Scripts/preflight.sh
+python3 ios/Scripts/prepare-app-icon.py
 xcodegen generate --spec ios/project.yml
 python3 ios/Scripts/verify-project.py
 ```
@@ -38,7 +39,7 @@ and packages the app under `Payload/` without ROMs or signing credentials.
 It runs manually or when its own workflow file changes on `ios-port`, only in
 the personal fork. The artifact expires after three days; no release is published.
 
-The resulting `VF2Recomp-2868x1320-import-fix-unsigned.ipa` requires personal re-signing
+The resulting `VirtuaFighter2-build3-unsigned.ipa` requires personal re-signing
 before installation. It contains no provisioning profile and no JIT entitlement.
 The source commit is recorded inside `BUILD-INFO.json`. Packaging does not prove
 working gameplay or device performance. The original compile-only workflow
@@ -99,7 +100,10 @@ Y = Guard+Punch; LB/LT = Guard+Kick; RB = Punch+Kick; RT = all three;
 Menu = Start; Options = game menu. The touch overlay supplies directions,
 Guard/Punch/Kick, Start, Coin and Menu. Controls respect window safe-area
 insets; unused overlay space passes touches to SDL, and only Menu remains
-visible while the game menu is open. Accessibility scaling and comprehensive
+visible while the game menu is open. The overlay is installed above the SDL
+render view and shown only while no controller is connected. Connecting a
+controller hides all touch controls and clears held touch input; disconnecting
+restores the overlay. Accessibility scaling and comprehensive
 controller remapping still need device review.
 
 Lifecycle event watches pause audio/emulation, clear held touch inputs and

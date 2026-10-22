@@ -24,6 +24,8 @@ targets:
           - CMakeLists.txt
           - "**/CMakeLists.txt"
       - path: ../third_party/rmlui/Backends
+      - path: Generated/Assets.xcassets
+        buildPhase: resources
       - path: ../assets
         type: folder
         buildPhase: resources

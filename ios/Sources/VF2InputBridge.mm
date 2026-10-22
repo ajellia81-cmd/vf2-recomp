@@ -7,6 +7,8 @@ namespace {
 
 ios_input_snapshot g_input;
 bool g_installed = false;
+bool g_menu_open = false;
+bool g_controller_connected = false;
 bool menu_was[2]{};
 GCController *slots[2];
 
@@ -41,6 +43,19 @@ void sample(GCExtendedGamepad *pad, int player, ios_input_snapshot &input)
 @end
 
 static VF2TouchOverlay *g_overlay;
+
+static void update_touch_visibility(bool connected)
+{
+	if (g_controller_connected != connected) {
+		// Do not carry held touch buttons into physical-controller input or back.
+		g_input = {};
+		g_controller_connected = connected;
+	}
+	g_overlay.hidden = connected;
+	for (VF2TouchButton *button in g_overlay.subviews)
+		button.hidden = g_menu_open && button.action != C_MENU;
+	if (!connected) [g_overlay.superview bringSubviewToFront:g_overlay];
+}
 
 @implementation VF2TouchOverlay
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event
@@ -106,6 +121,9 @@ void ios_input_install(SDL_Window *window)
 	g_overlay.backgroundColor = UIColor.clearColor;
 	g_overlay.multipleTouchEnabled = YES;
 	[native addSubview:g_overlay];
+	[g_overlay setNeedsLayout];
+	[g_overlay layoutIfNeeded];
+	update_touch_visibility(GCController.controllers.count != 0);
 }
 
 void ios_input_reset()
@@ -116,8 +134,8 @@ void ios_input_reset()
 
 void ios_input_set_menu(bool open)
 {
-	for (VF2TouchButton *button in g_overlay.subviews)
-		button.hidden = open && button.action != C_MENU;
+	g_menu_open = open;
+	update_touch_visibility(GCController.controllers.count != 0);
 	if (open) g_input = {};
 }
 
@@ -128,15 +146,17 @@ void ios_input_uninstall()
 	g_overlay = nil;
 	slots[0] = slots[1] = nil;
 	g_installed = false;
+	g_menu_open = g_controller_connected = false;
 }
 
 ios_input_snapshot ios_input_read()
 {
 	// UIKit and the SDL iOS host run on the main thread. Polling avoids callback races,
 	// overlapping-button releases, stale disconnect state, and duplicate observer ownership.
+	NSArray<GCController *> *connected = GCController.controllers;
+	update_touch_visibility(connected.count != 0);
 	ios_input_snapshot copy = g_input;
 	g_input.menu_pressed = false;
-	NSArray<GCController *> *connected = GCController.controllers;
 	for (int p = 0; p < 2; ++p) {
 		if (slots[p] && ![connected containsObject:slots[p]]) {
 			slots[p] = nil;

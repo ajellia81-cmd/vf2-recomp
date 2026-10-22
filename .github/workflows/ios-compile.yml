@@ -79,6 +79,7 @@ jobs:
         run: |
           mkdir -p ios/build
           sh ios/Scripts/preflight.sh
+          python3 ios/Scripts/prepare-app-icon.py
           xcodegen generate --spec ios/project.yml
           python3 ios/Scripts/verify-project.py
       - name: Compile unsigned iPhone app (no archive or export)
