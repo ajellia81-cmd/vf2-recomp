@@ -25,3 +25,26 @@ import, gameplay, controls, audio, frame rate or thermal behavior on an iPhone.
 receipt records the subsequently authorized personal packaging stage. Render
 resolution remains fixed at 2868 x 1320 for battles; execution remains
 interpreter-only.
+
+## ROM import correction (build 2)
+
+- Source: `5de5459324623889ab2a3bb8b4faf8cd0452c1b4`.
+- Packaging and simulator tests: https://github.com/ajellia81-cmd/vf2-recomp/actions/runs/39744951789
+- Device/simulator compile checks: https://github.com/ajellia81-cmd/vf2-recomp/actions/runs/39744951628
+- Output: `VF2Recomp-2868x1320-import-fix-unsigned.ipa` (4,535,805 bytes).
+- SHA-256: `332152e53559e7ef9e8f19d068f50d51e05cafcf44b645602b01b5a1b068a78e`.
+
+The picker imports a provider-managed copy and permits generic data documents,
+then checks the actual ZIP/ROM contents. Coordinated copying and validation run
+in a background queue, with progress shown while UIKit stays on the main loop.
+Completion and modal transitions run on the main thread. The bundle identifier
+is unchanged and the build number is 2.
+
+Two actual iOS Simulator XCTest cases passed: invalid plain-text document import
+returns before its error callback, completes on the main thread and preserves
+the source; cancellation completes once. The tests do not contain ROM data.
+Native 2868 x 1320 synthetic Metal tests, unsigned Release device compilation,
+unsigned Debug simulator compilation, packaging and downloaded ZIP/hash checks
+also passed. Physical-device document-provider interaction, tapping Open, valid
+ROM import and gameplay remain unverified; no claim is made that the user's
+specific picker failure was reproduced on their device.
