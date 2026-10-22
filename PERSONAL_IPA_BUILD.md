@@ -107,3 +107,28 @@ checks do not establish actual game's brightness or color accuracy. The user's
 separate report of graphics corruption on every real-device relaunch is not
 reproduced or confirmed fixed by these tests. A screenshot of that condition
 was requested. No ROM or NVRAM data was obtained, modified or deleted.
+
+## Window/UI coordinate isolation (build 5)
+
+- Source: `4568907cbf11e435636a192118f82c9f55b0c9aa`.
+- Successful packaging/tests: https://github.com/ajellia81-cmd/vf2-recomp/actions/runs/39768115606
+- Successful device/simulator compile checks: https://github.com/ajellia81-cmd/vf2-recomp/actions/runs/39768115622
+- Output: `VirtuaFighter2-build5-unsigned.ipa` (6,135,360 bytes).
+- SHA-256: `c1390917a391e031e2070d1f9cae65517a482a489cfdad2682a0545ddb81be69`.
+
+The user clarified that relaunch shows only part of the game picture with an
+enlarged UI. This build makes the iOS fullscreen window visible/synchronized
+before creating the renderer, reestablishes logical presentation on pixel-size
+changes even with fixed aspect, and resets window scale/viewport/scissor before
+each final game draw. Composition targets explicitly disable logical scaling
+and reset viewport/scissor. RmlUi renders in unscaled output pixels and restores
+the previous logical presentation, scale, viewport and clip state afterwards.
+
+The synthetic SDL/Metal test now deliberately leaves a 4x scale and an 8x8
+viewport/scissor before drawing. It passed full-picture RGB readback and checks
+that overlay scale is 1 with no stale viewport/scissor. All build 4 display tests,
+native Metal raster tests, import XCTest cases, interpreter checks and both
+Apple compilation configurations passed. Downloaded IPA integrity/hash and build
+metadata were verified. Physical-iPhone cold-launch behavior remains unverified;
+this is a coordinate-state correction, not a claim of game-data reproduction.
+The selectable resolution/brightness features from build 4 are included.
