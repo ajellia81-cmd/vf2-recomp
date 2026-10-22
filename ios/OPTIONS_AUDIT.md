@@ -43,3 +43,11 @@ Windows graphics-driver choices remain hidden on iOS. Resolution replaces the
 integer-scale selector; CPU execution is interpreter-only regardless of render
 quality or refresh rate. Physical controllers now use SDL's GameController
 backend once, so remaps/selection/None/Swap do not compete with a fixed GC mapping.
+
+## Build 8: original choices and iPhone exception
+
+Resolution keeps the original 1x, 2x, 3x, 4x, 5x, 6x order and appends
+2868 x 1320 (iPhone). Original scales honor all original Picture shape choices
+(Fit the window, 4:3, 16:10, 16:9, 21:9). Only the iPhone option ignores
+that saved choice and fills the entire screen. Returning to an original scale
+restores the saved shape; selecting iPhone does not overwrite it.

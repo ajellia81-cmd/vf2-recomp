@@ -906,7 +906,7 @@ static int run_game(int argc, char **argv, bool &quit_application)
 	if (arg_volume >= 0) cfg.volume = arg_volume;
 #if defined(VF2_IOS)
 	// iOS keeps its selected resolution across launches; old installs start at native.
-	cfg.aspect = 0; cfg.fullscreen = true; cfg.scale = cfg.ios_resolution ? cfg.ios_resolution : 1; cfg.aa = 1; cfg.renderer3d = 1;
+	cfg.fullscreen = true; cfg.scale = cfg.ios_resolution ? cfg.ios_resolution : 1; cfg.aa = 1; cfg.renderer3d = 1;
 #endif
 	g_pc_mode = !cfg.arcade;
 #ifdef VF2_GPU3D_METAL
@@ -1210,9 +1210,6 @@ static int run_game(int argc, char **argv, bool &quit_application)
 	SDL_SetRenderVSync(ren, getenv("VF2_NO_VSYNC") ? 0 : 1);   // (VF2_NO_VSYNC=1: tests, as a driver forcing it off)
 	// The picture's shape: the chosen one, or the window's (fit: between 4:3 and 32:9)
 	auto window_aspect = [&] {
-#if defined(VF2_IOS)
-		return ios_video::ASPECT;
-#endif
 		int w = 0, h = 0;
 		SDL_GetWindowSizeInPixels(win, &w, &h);
 		if ((SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN) && (SDL_GetWindowFlags(win) & SDL_WINDOW_HIDDEN))   // (it takes the screen's size once shown)
@@ -1220,7 +1217,10 @@ static int run_game(int argc, char **argv, bool &quit_application)
 		return h > 0 ? std::clamp(float(w) / float(h), 4.0f / 3.0f, 32.0f / 9.0f) : 16.0f / 9.0f;
 	};
 	auto apply_aspect = [&] {   // true if the picture's shape changed
-		const float a = ASPECTS[aspect_i] > 0 ? ASPECTS[aspect_i] : window_aspect();
+		float a = ASPECTS[aspect_i] > 0 ? ASPECTS[aspect_i] : window_aspect();
+#if defined(VF2_IOS)
+		if (!cfg.ios_resolution) a = ios_video::ASPECT;
+#endif
 		if (std::fabs(a - m.aspect()) < 0.001f) return false;
 		const int ext = m.side_columns();
 		m.set_aspect(a);
@@ -1231,7 +1231,7 @@ static int run_game(int argc, char **argv, bool &quit_application)
 	// letterboxed in the window
 	auto present_shape = [&] {
 #if defined(VF2_IOS)
-		prepare_game_view(ren, ios_video::WIDTH, ios_video::HEIGHT);
+		prepare_game_view(ren, int(std::lround(384.0 * m.width() / 372.0)), 384, cfg.ios_resolution == 0);
 		return;
 #endif
 		SDL_SetRenderLogicalPresentation(ren, int(std::lround(384.0 * m.width() / 372.0)), 384, SDL_LOGICAL_PRESENTATION_LETTERBOX);
@@ -2226,9 +2226,6 @@ static int run_game(int argc, char **argv, bool &quit_application)
 		gov_calm = 0; gov_raised = false; gov_calm_need = 5;
 	};
 	auto set_shape = [&](int v) {
-#if defined(VF2_IOS)
-		v = 0;
-#endif
 		aspect_i = cfg.aspect = v; cfg_dirty = true;
 		apply_aspect();
 		reshape();   // (the title too)
@@ -2290,14 +2287,17 @@ static int run_game(int argc, char **argv, bool &quit_application)
 	auto display_page = [&] {
 		menu_page p{ "Display", "", {} };
 #if defined(VF2_IOS)
-		p.items.push_back({ "Resolution", "Choose the original 1x–6x render scales or direct 2868 x 1320 rendering. Higher resolutions need more GPU time and memory.",
-			[&] { return cfg.ios_resolution ? std::to_string(cfg.ios_resolution) + "x (" + std::to_string(m.width() * scale) + " x " + std::to_string(model2a::HEIGHT * scale) + ")" : std::string("2868 x 1320 (iPhone)"); },
+		p.items.push_back({ "Resolution", "Original 1x-6x render scales use Picture shape. The last option, 2868 x 1320, renders directly and fills the screen regardless of Picture shape.",
+			[&] { return cfg.ios_resolution ? std::to_string(cfg.ios_resolution) + "x" : std::string("2868 x 1320 (iPhone)"); },
 			[&](int d) {
 				finish_async(false);
 				g3_free(); gpu_free();
-				cfg.ios_resolution = wrap(cfg.ios_resolution + d, MAX_SCALE + 1);
+				const int i = std::clamp((cfg.ios_resolution ? cfg.ios_resolution - 1 : MAX_SCALE) + d, 0, MAX_SCALE);
+				cfg.ios_resolution = i == MAX_SCALE ? 0 : i + 1;
+				apply_aspect();
 				gpu_pic.set_output_size(cfg.ios_resolution ? 0 : ios_video::WIDTH, cfg.ios_resolution ? 0 : ios_video::HEIGHT);
 				set_scale(cfg.ios_resolution ? cfg.ios_resolution : 1);
+				reshape();
 			} });
 #else
 		p.items.push_back({ "Render scale",
@@ -2357,12 +2357,10 @@ static int run_game(int argc, char **argv, bool &quit_application)
 				g3_decide("the player's GPU quality", true);
 				redraw_shown();
 			} });
-#if !defined(VF2_IOS)
 		p.items.push_back({ "Picture shape",
 			"Fit the window fills any screen shape. The other shapes add black bars to keep their shape; 4:3 is the original arcade screen. (F6)",
 			[&] { return std::string(aspect_i ? ASPECT_NAMES[aspect_i] : "Fit the window"); },
 			[&](int d) { set_shape(wrap(aspect_i + d, N_ASPECTS)); } });
-#endif
 		p.items.push_back({ "Background filter",
 			"Smooth softens the stage backgrounds so they don't look blocky when enlarged. Off keeps their original pixels. Applies to stage backgrounds, including native resolution; fighters and HUD stay sharp.",
 			[&] { return std::string(cfg.smooth_bg ? "Smooth" : "Off"); },
