@@ -38,7 +38,7 @@ public:
 			}
 			auto m_texture_at = [&](int x, int y, float rgb[3]) {
 				rgb[0] = rgb[1] = rgb[2] = row[y];
-				if (!crt) return true;
+				if (!crt) return;
 				for (int c = 0; c < 3; c++) if (c != x % 3) rgb[c] *= 0.78f;   // the grille: one colour per pixel column
 				const float dx = (x + 0.5f) / w * 2 - 1, dy = (y + 0.5f) / h * 2 - 1;
 				const float d = std::min(1.0f, (dx * dx + dy * dy) / 2);
