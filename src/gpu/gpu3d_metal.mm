@@ -7,6 +7,7 @@
 // devices/video/poly.h, Ville Linde and Aaron Giles), BSD-3-Clause, copyright-holders as above,
 // written for the GPU. Low's edge smoothing is model2a::edge_smooth's (ours).
 #include "gpu3d.h"
+#include "pixel_grid.h"
 #import <Metal/Metal.h>
 #import <CoreVideo/CoreVideo.h>
 #import <QuartzCore/CAMetalLayer.h>
@@ -646,7 +647,9 @@ public:
 		const auto t0 = std::chrono::steady_clock::now();
 		const int W = f.w * f.ss, H = f.h * f.ss, s = f.scale * f.ss;
 		id<MTLCommandBuffer> cb = [m_queue commandBuffer];
-		if (!encode_picture(cb, polys, count, W, H, s)) return false;
+		if ((f.pixel_scale_x != 0 || f.pixel_scale_y != 0) && f.edge) return false;
+		if (!encode_picture(cb, polys, count, W, H, s,
+			f.pixel_scale_x * f.ss, f.pixel_scale_y * f.ss)) return false;
 		if (target < 0) {   // (a test picture: drawn, not put anywhere)
 			[cb commit];
 			m_cb = cb;
@@ -732,13 +735,14 @@ private:
 
 	// The picture w x h at `scale` into m_cbuf (0xAARRGGBB, 0 none); the exact way's owners in
 	// m_owner_buf, the fast way's in m_owner_tex
-	bool encode_picture(id<MTLCommandBuffer> cb, const gpu3d_poly *polys, size_t count, int w, int h, int scale)
+	bool encode_picture(id<MTLCommandBuffer> cb, const gpu3d_poly *polys, size_t count, int w, int h, int scale, float sx = 0, float sy = 0)
 	{
+		const gpu3d_pixel_grid grid(scale, sx, sy);
+		if (!grid.valid()) return false;
 		if (!buffers(w, h)) return false;
 		upload_rams();
 		m_info.assign(std::max<size_t>(count, 1), pinfo{});
 		m_pv.resize(std::max<size_t>(count, 1));
-		const float s = float(scale);
 		const bool ex = exact();
 		const int spans = ex ? 1 : fast_spans();
 		struct run { size_t first, count; MTLScissorRect sc; };
@@ -752,8 +756,8 @@ private:
 			bool finite = true;
 			for (int k = 0; k < p.n; k++) finite = finite && std::isfinite(p.x[k]) && std::isfinite(p.y[k]);
 			if (!finite) continue;
-			const long x0 = std::max<long>(0, long(p.vp[0]) * scale), x1 = std::min<long>(w, (long(p.vp[1]) + 1) * scale);
-			const long y0 = std::max<long>(0, long(p.vp[2]) * scale), y1 = std::min<long>(h, (long(p.vp[3]) + 1) * scale);
+			const long x0 = grid.left(p.vp[0], w), x1 = grid.right(p.vp[1], w);
+			const long y0 = grid.top(p.vp[2], h), y1 = grid.bottom(p.vp[3], h);
 			if (x1 <= x0 || y1 <= y0) continue;
 			pinfo &o = m_info[i];
 			const bool tex = p.renderer & 2;
@@ -771,7 +775,7 @@ private:
 			pverts &pv = m_pv[i];
 			float minx = 1e30f, maxx = -1e30f, miny = 1e30f, maxy = -1e30f;
 			for (int k = 0; k < p.n; k++) {
-				pv.x[k] = p.x[k] * s; pv.y[k] = p.y[k] * s;
+				pv.x[k] = p.x[k] * grid.x; pv.y[k] = p.y[k] * grid.y;
 				pv.p[k][0] = tex ? p.z[k] : 0; pv.p[k][1] = tex ? p.u[k] : 0; pv.p[k][2] = tex ? p.v[k] : 0;
 				minx = std::min(minx, pv.x[k]); maxx = std::max(maxx, pv.x[k]);
 				miny = std::min(miny, pv.y[k]); maxy = std::max(maxy, pv.y[k]);

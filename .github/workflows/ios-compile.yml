@@ -17,6 +17,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Test native pixel coordinates without ROMs
+        run: |
+          mkdir -p build/bin-tests
+          c++ -std=c++20 -O2 tools/checks/pixel_grid.cpp -o build/bin-tests/pixel-grid
+          build/bin-tests/pixel-grid
       - name: Build ROM-free interpreter tool
         run: make JIT=0 OBJ=build/obj-interp BIN=build/bin-interp build/bin-interp/vf2run -j2
       - name: Verify missing-archive diagnostic and absence of SLJIT
@@ -59,6 +64,17 @@ jobs:
             ios/Dependencies/*.xcframework
             ios/build/licenses
           key: ${{ steps.dependencies.outputs.cache-primary-key }}
+      - name: Test native Metal rasterization with synthetic geometry
+        shell: bash
+        run: |
+          mkdir -p ios/build
+          xcrun clang++ -std=c++20 -O2 -fobjc-arc tools/checks/metal_native_grid.mm src/gpu/gpu3d_metal.mm \
+            -framework Metal -framework Foundation -framework CoreVideo -framework QuartzCore -o ios/build/metal-native-grid
+          set +e
+          ios/build/metal-native-grid
+          result=$?
+          set -e
+          if [ "$result" = 77 ]; then echo 'Metal runtime test skipped: inspect the message above.'; else exit "$result"; fi
       - name: Check dependencies and generate Xcode project
         run: |
           mkdir -p ios/build

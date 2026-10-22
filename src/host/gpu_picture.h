@@ -47,6 +47,12 @@ public:
 
 	explicit gpu_picture(SDL_Renderer *ren) : m_ren(ren) {}
 	~gpu_picture() { free(); }
+	void set_output_size(int w, int h) {
+		if (w == m_output_w && h == m_output_h) return;
+		free();
+		m_output_w = std::max(0, w); m_output_h = std::max(0, h);
+		m_bad_w = m_bad_s = -1;
+	}
 	SDL_Texture *target() const { return m_target; }   // the picture put together (LINEAR, for showing it scaled)
 
 	// The textures for a picture w arcade pixels wide at scale s (false: they can't be made here)
@@ -63,7 +69,9 @@ public:
 			m_bad_w = w; m_bad_s = s;
 			return false;
 		}
-		m_target = texture(W, H, SDL_TEXTUREACCESS_TARGET, SDL_BLENDMODE_NONE, SDL_SCALEMODE_LINEAR);
+		const int out_w = m_output_w ? m_output_w : W, out_h = m_output_h ? m_output_h : H;
+		if (max > 0 && (out_w > max || out_h > max)) return false;
+		m_target = texture(out_w, out_h, SDL_TEXTUREACCESS_TARGET, SDL_BLENDMODE_NONE, SDL_SCALEMODE_LINEAR);
 		m_bd = texture(w + 2 * P, HEIGHT + 2 * P, SDL_TEXTUREACCESS_STREAMING, SDL_BLENDMODE_NONE, SDL_SCALEMODE_NEAREST);
 		m_mid = texture(w, HEIGHT, SDL_TEXTUREACCESS_STREAMING, SDL_BLENDMODE_BLEND, SDL_SCALEMODE_NEAREST);
 		m_top = texture(w, HEIGHT, SDL_TEXTUREACCESS_STREAMING, SDL_BLENDMODE_BLEND, SDL_SCALEMODE_NEAREST);
@@ -148,7 +156,14 @@ public:
 		const SDL_Rect rows{ 0, r0, W, r1 - r0 };
 		const SDL_FRect frows{ 0, float(r0), float(W), float(r1 - r0) };
 		if (has3d && !copied && p.map3d) send_rows(m_3d, &rows, p.map3d + size_t(r0) * p.map_stride, p.map_stride);
-		SDL_SetRenderTarget(m_ren, m_target);
+		float old_x = 1, old_y = 1;
+		SDL_GetRenderScale(m_ren, &old_x, &old_y);
+		if (!SDL_SetRenderTarget(m_ren, m_target)) return false;
+		// Keep legacy 2D coordinates, but rasterize the composition directly into
+		// its native-sized target. An external native 3D texture maps 1:1 to it.
+		SDL_SetRenderScale(m_ren, m_output_w ? float(m_output_w) / W : 1.0f,
+			m_output_h ? float(m_output_h) / H : 1.0f);
+		const SDL_FRect whole{0, 0, float(W), float(H)};
 		if (ss == 1) {
 			const SDL_FRect bd_at{ float(-p.bdx - P * s), float(-p.bdy - P * s), float((w + 2 * P) * s), float((HEIGHT + 2 * P) * s) };
 			SDL_RenderTexture(m_ren, m_bd, nullptr, &bd_at);
@@ -169,10 +184,10 @@ public:
 			SDL_SetTextureBlendMode(m_bd, SDL_BLENDMODE_NONE);
 			SDL_SetTextureAlphaModFloat(m_bd, 1.0f);
 		}
-		SDL_RenderTexture(m_ren, m_mid, nullptr, nullptr);
-		if (ext3d) { if (p.has3d) SDL_RenderTexture(m_ren, ext3d, nullptr, nullptr); }
+		SDL_RenderTexture(m_ren, m_mid, nullptr, &whole);
+		if (ext3d) { if (p.has3d) SDL_RenderTexture(m_ren, ext3d, nullptr, &whole); }
 		else if (has3d) SDL_RenderTexture(m_ren, m_3d, &frows, &frows);
-		SDL_RenderTexture(m_ren, m_top, nullptr, nullptr);
+		SDL_RenderTexture(m_ren, m_top, nullptr, &whole);
 		if (p.sides) {
 			const int sw = (w - WIDTH) / 2 * s;
 			const SDL_FRect left{ 0, 0, float(sw), float(H) }, right{ float(W - sw), 0, float(sw), float(H) };
@@ -198,9 +213,10 @@ public:
 			}
 		}
 		pictures++;
-		if (check_every && pictures % uint64_t(check_every) == 0 && !ext3d) check(p);
-		SDL_SetRenderTarget(m_ren, nullptr);
-		return true;
+		if (check_every && pictures % uint64_t(check_every) == 0 && !ext3d && !m_output_w && !m_output_h) check(p);
+		const bool restored = SDL_SetRenderTarget(m_ren, nullptr);
+		SDL_SetRenderScale(m_ren, old_x, old_y);
+		return restored;
 	}
 
 	void free()
@@ -230,6 +246,7 @@ private:
 	SDL_Renderer *m_ren;
 	SDL_Texture *m_target = nullptr, *m_bd = nullptr, *m_mid = nullptr, *m_top = nullptr, *m_3d = nullptr, *m_sides = nullptr;
 	int m_w = 0, m_s = 0, m_bd_filter = -1;
+	int m_output_w = 0, m_output_h = 0;
 	int m_bad_w = -1, m_bad_s = -1;   // a size its textures couldn't be made at
 	uint64_t m_version = ~0ull;
 	bool m_locked = false;

@@ -173,6 +173,8 @@ public:
 
 	bool submit(const gpu3d_poly *polys, size_t count, const gpu3d_frame &f, int target) override
 	{
+		// Fractional native grids are implemented by Metal; never silently ignore one.
+		if (f.pixel_scale_x != 0 || f.pixel_scale_y != 0) return false;
 		// (2026-10-15, vf2-recomp #3 again: with the show no longer waiting, the wait moved here, ~7 ms
 		// "draw" a picture at 6x on an RTX 5080: the last picture's fence comes after the renderer's
 		// present, so waiting for it took in the screen's refresh. A picture still in flight is left

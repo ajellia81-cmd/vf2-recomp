@@ -73,6 +73,10 @@ enum class gpu3d_quality { exact, fast };
 struct gpu3d_frame
 {
 	int w = 0, h = 0, scale = 1, ss = 1;
+	// Metal: optional output pixels per arcade pixel on each axis. These transform
+	// vertices BEFORE rasterization, allowing an exact, non-integer-sized 3D target.
+	// Zero/zero retains integer scale. Low edge-AA requires the legacy integer grid.
+	float pixel_scale_x = 0, pixel_scale_y = 0;
 	bool edge = false;
 	const uint32_t *backdrop = nullptr, *mid = nullptr;
 	int w2d = 0, pad = 0, bdx = 0, bdy = 0;
