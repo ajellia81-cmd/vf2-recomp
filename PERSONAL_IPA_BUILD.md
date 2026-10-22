@@ -132,3 +132,41 @@ Apple compilation configurations passed. Downloaded IPA integrity/hash and build
 metadata were verified. Physical-iPhone cold-launch behavior remains unverified;
 this is a coordinate-state correction, not a claim of game-data reproduction.
 The selectable resolution/brightness features from build 4 are included.
+
+## Full options audit and display/input fixes (build 6)
+
+- Source: `7331f1eb091a9b5c8f635702a09e366290c73460`.
+- Successful packaging/tests: https://github.com/ajellia81-cmd/vf2-recomp/actions/runs/39772769066
+- Successful device/simulator compile checks: https://github.com/ajellia81-cmd/vf2-recomp/actions/runs/39772769010
+- Output: `VirtuaFighter2-build6-unsigned.ipa` (6,134,083 bytes).
+- SHA-256: `99737c505304e2e60050c89edc5d8e921cfe3eb941bd52fd0c0c14facb0b0086`.
+
+FPS now sits at the upper left using the iOS safe area. The app opts in to
+high-refresh iPhone presentation with CADisableMinimumFrameDurationOnPhone;
+pinned SDL already requests the screen's maximum refresh rate. This removes a
+missing platform opt-in, but CI does not establish actual 120 fps on a phone.
+
+Background smoothing was disabled at native output because the board scale is
+1; that gate is removed. Screen-filter normalization now samples every row,
+avoiding aliasing with the native three-pixel scanline period. Synthetic pixel
+checks require actual background changes, scanline contrast, CRT RGB stripes,
+and restoration with Off, alongside all prior display/brightness checks.
+
+Physical controllers now use the configurable SDL input path instead of a
+second fixed native mapping, so controller selection and button remaps apply
+to gameplay. The identical-GUID Swap pads flag is saved across restart. A new
+ROM-free round-trip test covers both players' controller choices and every
+keyboard/button action. Held touch Start also reaches the cabinet start bit.
+
+The full category/item audit is in ios/OPTIONS_AUDIT.md, including Sound, Game,
+Arcade settings, Controls and Cheats. Callback/value/application/persistence
+paths were inspected. Actual sound changes, game rules, secret characters,
+physical-controller remapping/hotplug and achieved phone frame rate remain
+real-device checks; source inspection is not a substitute for gameplay tests.
+The user separately confirmed build 5 resolves the relaunch picture/UI issue.
+
+Exact/Fast native Metal tests, display pixel tests, controls persistence,
+interpreter checks, two import XCTest cases, device/simulator compilation and
+IPA metadata/hash checks passed. Downloaded IPA ZIP integrity, version 6,
+high-refresh flag and source identity were verified. Interpreter-only execution
+and ROM-free packaging remain in effect. This is unsigned for personal signing.
