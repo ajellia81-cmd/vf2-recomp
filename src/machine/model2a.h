@@ -18,6 +18,7 @@
 #if defined(VF2_IOS)
 #include "combat_probe.h"
 #include "combat_sound_probe.h"
+#include "vf2_impact_sound.h"
 #endif
 #include "../core/i960_device.h"
 #include "../core/mb86233.h"
@@ -41,6 +42,9 @@ public:
 #if defined(VF2_IOS)
 	combat_probe haptic_probe;
 	combat_sound_probe haptic_sound_probe;
+	vf2_impact_sound haptic_impact_sound;
+	int haptic_contact_estimate[2]{};
+	void resolve_haptic_contacts(bool blocked);
 	uint64_t haptic_damage_total[2]{}, haptic_contact_total[2]{};
 #endif
 	static constexpr uint64_t CYCLES_PER_LINE = 1025;                  // 656 pixels at 16 MHz

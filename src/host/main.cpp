@@ -2686,7 +2686,7 @@ static int run_game(int argc, char **argv, bool &quit_application)
 	// hotkey) or closed, the sound device follows at once (its queue doesn't drain meanwhile)
 	bool sound_paused = false;
 #if defined(VF2_IOS)
-	bool ios_background = false;
+	bool ios_background = false, haptic_discard_pending = false;
 #endif
 	auto sync_menu_sound = [&] {
 		bool want_pause = menu.is_open();
@@ -2697,7 +2697,12 @@ static int run_game(int argc, char **argv, bool &quit_application)
 		sound_paused = want_pause;
 		if (sound_paused) SDL_PauseAudioStreamDevice(audio); else SDL_ResumeAudioStreamDevice(audio);
 	};
-	auto open_menu = [&] { if (menu.ready() && !menu.is_open()) menu.open(main_page()); sync_menu_sound(); };
+	auto open_menu = [&] {
+#if defined(VF2_IOS)
+        m.haptic_impact_sound.clear();
+#endif
+        if (menu.ready() && !menu.is_open()) menu.open(main_page()); sync_menu_sound();
+    };
 	pad_state pstate[2];
 	int shot = 0;   // F12's screenshots: the next number to try
 
@@ -2839,7 +2844,7 @@ static int run_game(int argc, char **argv, bool &quit_application)
 	std::function<void(const SDL_Event &)> lifecycle = [&](const SDL_Event &event) {
 		if (!SDL_IsMainThread()) return; // UI lifecycle notifications originate on the main thread.
 		if (event.type == SDL_EVENT_WILL_ENTER_BACKGROUND || event.type == SDL_EVENT_TERMINATING) {
-			ios_background = true;
+			ios_background = true; haptic_discard_pending = true;
 			feedback.stop(pads); ios_haptics_suspend();
 			ios_input_reset();
 			sync_menu_sound();
@@ -2975,7 +2980,10 @@ static int run_game(int argc, char **argv, bool &quit_application)
 			restart_clock();
 		}
 #if defined(VF2_IOS)
-		if (ios_background) { SDL_Delay(30); continue; }
+		if (!cfg.haptics || paused || menu.is_open() || ios_background || haptic_discard_pending) {
+            m.haptic_impact_sound.clear(); haptic_discard_pending=false;
+        }
+        if (ios_background) { SDL_Delay(30); continue; }
 #endif
 		const bool stopped = paused || menu.is_open();
 		int due = 0;
@@ -3039,7 +3047,9 @@ static int run_game(int argc, char **argv, bool &quit_application)
 		// inputs, its sound, the hotkeys (false: no more frames this pass, the menu opened or a restart)
 		auto frame_done = [&](bool last, bool &into, bool &held_now) -> bool {
 #if defined(VF2_IOS)
-			feedback.frame(vf2_haptic_snapshot(m.workram(), m.frame_number(), m.fight_energy_limit(), m.haptic_damage_total, m.haptic_contact_total), pads, cfg.haptics, ff || paused || menu.is_open() || ios_background, cfg.haptic_players, cfg.haptic_strength);
+			m.resolve_haptic_contacts(!cfg.haptics || ff || paused || menu.is_open() || ios_background || haptic_discard_pending);
+			haptic_discard_pending=false;
+			feedback.frame(vf2_haptic_snapshot(m.workram(), m.frame_number(), m.fight_energy_limit(), m.haptic_damage_total, m.haptic_contact_total, m.haptic_contact_estimate), pads, cfg.haptics, ff || paused || menu.is_open() || ios_background, cfg.haptic_players, cfg.haptic_strength);
 #endif
 			if (test_ko.player && game_frame >= test_ko.from && game_frame <= test_ko.to && m.workram()[0x2b] == 9 && m.workram()[0x31] == 9) {
 				const u32 block = test_ko.player == 1 ? 0x510980 : 0x512980;   // (as vf2run's --ko)

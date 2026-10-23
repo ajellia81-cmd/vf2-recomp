@@ -12,6 +12,7 @@ struct Snapshot {
 	unsigned players = 3;
 	bool damage_events = false;
 	uint64_t damage_total[2]{}, contact_total[2]{};
+	int contact_estimate[2]{}; // optional sound estimate; never measured damage
 };
 struct Pulse {
 	float low = 0, high = 0;
@@ -47,9 +48,11 @@ public:
 				}
 				const bool contact = s.damage_events && s.contact_total[victim] > previous.contact_total[victim];
 				if (damage <= 0 && !contact) continue;
-				// No damage survives VF2's post-KO clamp. Use the ordinary saturated-hit
-				// profile, rather than attenuating contact feedback solely because health is zero.
-				const float weight = damage > 0 ? std::sqrt(std::clamp(8.0f * damage / s.maximum, 0.0f, 1.0f)) : 1.0f;
+				// Measured damage always wins. Only an existing zero-health contact may
+				// use an estimate; unknown sounds keep the build-13 saturated fallback.
+				const int estimate=(contact && s.health[victim]==0) ? std::clamp(s.contact_estimate[victim],0,1000) : 0;
+				const int magnitude=damage>0 ? damage : estimate;
+				const float weight = magnitude > 0 ? std::sqrt(std::clamp(8.0f * magnitude / s.maximum, 0.0f, 1.0f)) : 1.0f;
 				const bool ko = previous.health[victim] > 0 && s.health[victim] == 0;
 				Pulse received{(0.32f + 0.58f * weight) * gain, (0.15f + 0.50f * weight) * gain,
 					unsigned(40 + 60 * weight) + (ko ? 75u : 0u), ko};

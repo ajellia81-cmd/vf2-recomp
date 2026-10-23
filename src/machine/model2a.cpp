@@ -573,6 +573,8 @@ void model2a::reset()
 	m_in_callback = false;
 	m_frame_number = 0;
 #if defined(VF2_IOS)
+	haptic_impact_sound.clear();
+	haptic_contact_estimate[0]=haptic_contact_estimate[1]=0;
 	haptic_sound_probe.clear(); // A reset restarts emulated time: never mix captures.
 #endif
 	m_intreq = m_intena = 0;
@@ -1076,6 +1078,21 @@ u8 model2a::read_byte(offs_t a)
 	return u8(dev_read(a & ~3u, 0xffu << sh) >> sh);
 }
 
+#if defined(VF2_IOS)
+void model2a::resolve_haptic_contacts(bool blocked)
+{
+ if(blocked || m_workram[0x2b]!=9) { haptic_impact_sound.clear(); return; }
+ const auto batch=haptic_impact_sound.take(uint64_t(time()/(AS_PER_SEC/1000000)));
+ const unsigned fields[2]={0x10b2c,0x12b2c};
+ for(int p=0;p<2;++p) if(batch.count[p]) {
+  const unsigned a=fields[p];
+  if((m_workram[a]|(m_workram[a+1]<<8))!=0)continue; // refill cancels pending post-KO contacts
+  haptic_contact_total[p]+=batch.count[p];
+  haptic_contact_estimate[p]=batch.estimate[p];
+ }
+}
+#endif
+
 void model2a::observe_energy_store(uint32_t a,uint32_t value,unsigned bytes)
 {
 #if defined(VF2_IOS)
@@ -1087,7 +1104,10 @@ void model2a::observe_energy_store(uint32_t a,uint32_t value,unsigned bytes)
   }
   const bool full_word=a<=address[p] && a+bytes>=address[p]+2;
   if (vf2_contact_store(m_cpu.pip(),full_word,int16_t(old),int16_t(now),m_workram[0x2b])) {
-   ++haptic_contact_total[p];
+   const uint64_t us=uint64_t(time()/(AS_PER_SEC/1000000));
+   const bool post=int16_t(old)==0 && int16_t(now)==0;
+   haptic_impact_sound.contact(us,p,post);
+   if(!post)++haptic_contact_total[p];
    if(haptic_sound_probe.active()) haptic_sound_probe.contact(
     uint64_t(time()/(AS_PER_SEC/1000000)),m_frame_number,m_cpu.pip(),p+1,
     int16_t(old),int16_t(now),fight_energy_limit(),m_workram[0x2b],m_workram[0x31],m_workram[0x35]);
@@ -2997,9 +3017,11 @@ struct model2a::snd_bus : m68000_bus
 			if (m.on_68k_scsp_write) m.on_68k_scsp_write(a - 0x100000, data, mem_mask);
 			if (m.m_68k->pc() == 0x600a96 && (a & 0xffc1f) == 0) {
 #if defined(VF2_IOS)
-    if(m.haptic_sound_probe.active()) {
+    {
      const u32 channel=m.m_68k->reg(8);
      const bool direct=channel==0x40e0 && ((m.m_soundram[channel>>1]>>8)&1);
+     if(direct) m.haptic_impact_sound.voice(uint64_t(m.time()/(AS_PER_SEC/1000000)),m.m_68k->reg(2)&0xff);
+     if(m.haptic_sound_probe.active())
      m.haptic_sound_probe.voice(uint64_t(m.time()/(AS_PER_SEC/1000000)),m.m_frame_number,
       m.m_68k->pc(),channel,direct,m.m_68k->reg(2)&0xff,(a>>5)&31,
       m.m_workram[0x2b],m.m_workram[0x31],m.m_workram[0x35]);
