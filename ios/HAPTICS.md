@@ -84,3 +84,51 @@ from 0.405/0.414 respectively to 0.675. Duration and amplitude are both correcte
 Synthetic tests compare fallback contacts with ordinary saturated hits for both
 players, maxima 176/200/240 and strengths 0/25/75/100, including muted output and
 amplitude bounds. No physical-device feedback test is implied.
+
+## Sound/contact scalar calibration (diagnostic capture, no sound strength map yet)
+
+The existing channel grouping exposes channel 14 (hits **and swishes**) at the
+68000 voice-start request, PC `0x600a96`. A0 selects the channel entry and D2's
+low byte is the note ID. This precedes voice setup/key-on; it is neither proof of
+an audible sample nor a confirmed impact. Known weather notes `22`, `28`, `29`
+are excluded. Music, fighter voices, crowd and announcer channels are excluded.
+Host music/effects volume and audio amplitude are not strength inputs.
+
+Controls > **Record sound diagnostics** starts an optional, volatile recording.
+Enabling it clears the old recording. Disabling retains it. Machine reset clears
+it because emulated time restarts; application exit loses it. Reproduce normal
+weak/strong hits, throws, guards and swishes, then weak/strong post-KO contacts.
+Disable recording and use **Save hit diagnostics**. It preserves the existing
+`haptics-hit-diagnostics.csv` and additionally writes
+`haptics-sound-diagnostics.csv` under the app's data directory
+`Library/Application Support/Virtua Fighter 2 Recomp` (inside the guest app
+container when using LiveContainer). This does not add a share sheet or expose
+that directory through Files automatically. Report file-export errors via the
+`haptics:` log entries. Do not import another game's recording.
+
+The new file contains bounded scalar metadata: contact-store PC/side/old/new
+health, configured health ceiling, mode/round/live flags, candidate note/slot,
+emulated microseconds, frame and insertion sequence. The ring retains 4096 rows
+and reports overwritten rows. It contains no ROM, extracted samples, audio or
+memory dump. The emulation worker is joined before capture toggles and export;
+recording itself performs no allocation or disk writes. No recording changes
+the haptic trigger or build 13's fixed post-KO fallback.
+
+`python3 tools/checks/analyze_vf2_combat_sound.py FILE --window-ms 30` reports
+**provisional** associations. 30 ms is an example, not measured sound latency:
+compare several windows and recordings before interpreting any ID. Multiple
+sound candidates, simultaneous contacts sharing a sound, or missing candidates
+are counted rather than guessed. Only nonlethal active-match contacts with
+valid maximum health contribute normal damage statistics. Lethal/clipped hits
+are excluded because remaining HP is not the full move damage. Post-KO zero
+stores are counted separately. Multi-slot requests can be ambiguous; no
+unverified deduplication is applied. Replay/outside-state gating remains subject
+to the limitations of the existing contact writer; state flags are recorded for
+review rather than treated as a new proof that replay is excluded.
+
+A useful mapping requires repeated evidence that specific IDs correlate with
+different damage distributions and reappear after KO. The same effect may serve
+moves of different strengths, so any mapping will be an estimate with a fallback
+for unknown/ambiguous cases. The analyzer generates no runtime strength table.
+Linux synthetic tests validate capture bounds, exclusions, zero stores and
+conservative association rules, not actual VF2 sound meanings or device timing.
