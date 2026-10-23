@@ -15,6 +15,9 @@
 // ROM), kept in the schedule for the way it cuts timeslices short. The video timing is MAME's:
 // 16 MHz pixels, 656 x 424 per frame, vblank from line 384.
 #pragma once
+#if defined(VF2_IOS)
+#include "combat_probe.h"
+#endif
 #include "../core/i960_device.h"
 #include "../core/mb86233.h"
 #include "../rec/i960_native.h"
@@ -34,6 +37,9 @@
 class model2a : public mame_bus32
 {
 public:
+#if defined(VF2_IOS)
+	combat_probe haptic_probe;
+#endif
 	static constexpr uint64_t CYCLES_PER_LINE = 1025;                  // 656 pixels at 16 MHz
 	static constexpr uint64_t LINES = 424, VBLANK_LINE = 384;
 	static constexpr uint64_t CYCLES_PER_FRAME = CYCLES_PER_LINE * LINES;   // 434600
@@ -252,6 +258,7 @@ public:
 	// both players after a versus match (0: the winner plays on).
 	enum class game_assignment { match_1p, match_vs, difficulty, advertise_sound, continues, version, vs_finish };
 	int assignment(game_assignment a) const;
+	void observe_energy_store(uint32_t a,uint32_t value,unsigned bytes);
 	int fight_energy_limit() const; // Read-only ceiling of the configured 1P/VS energy.
 	bool set_assignment(game_assignment a, int v);
 	// The ring's width (1300-1600) whatever the difficulty, or 0 for the arcade's (by difficulty:

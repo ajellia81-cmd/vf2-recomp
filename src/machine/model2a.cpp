@@ -1070,9 +1070,28 @@ u8 model2a::read_byte(offs_t a)
 	return u8(dev_read(a & ~3u, 0xffu << sh) >> sh);
 }
 
+void model2a::observe_energy_store(uint32_t a,uint32_t value,unsigned bytes)
+{
+#if defined(VF2_IOS)
+ const unsigned address[2]={0x510b2c,0x512b2c};
+ for (int p=0;p<2;++p) if(a<=address[p]+1 && a+bytes>address[p]) {
+  unsigned o=address[p]-0x500000,old=m_workram[o]|(m_workram[o+1]<<8),now=old;
+  for(unsigned b=0;b<bytes;++b) if(a+b>=address[p] && a+b<=address[p]+1) {
+   unsigned shift=(a+b-address[p])*8; now=(now&~(255u<<shift))|(((value>>(b*8))&255u)<<shift);
+  }
+  haptic_probe.record(m_frame_number,m_cpu.pip(),p+1,int16_t(old),int16_t(now),m_workram[0x2b],m_workram[0x31],m_workram[0x35]);
+ }
+#else
+ (void)a;(void)value;(void)bytes;
+#endif
+}
+
 void model2a::write_dword(offs_t a, u32 v)
 {
 	a &= ~3u;
+#if defined(VF2_IOS)
+	if (a>=0x510b2c && a<=0x512b2d) observe_energy_store(a,v,4);
+#endif
 	u8 *p = nullptr; bool rom = false;
 	MEM_CASES(a, p, rom)
 	if (p) { if (!rom) memcpy(p, &v, 4); return; }
@@ -1082,6 +1101,9 @@ void model2a::write_dword(offs_t a, u32 v)
 void model2a::write_word(offs_t a, u16 v)
 {
 	a &= ~1u;
+#if defined(VF2_IOS)
+	if (a>=0x510b2c && a<=0x512b2d) observe_energy_store(a,v,2);
+#endif
 	u8 *p = nullptr; bool rom = false;
 	MEM_CASES(a, p, rom)
 	if (p) { if (!rom) memcpy(p, &v, 2); return; }
@@ -1091,6 +1113,9 @@ void model2a::write_word(offs_t a, u16 v)
 
 void model2a::write_byte(offs_t a, u8 v)
 {
+#if defined(VF2_IOS)
+	if (a>=0x510b2c && a<=0x512b2d) observe_energy_store(a,v,1);
+#endif
 	u8 *p = nullptr; bool rom = false;
 	MEM_CASES(a, p, rom)
 	if (p) { if (!rom) *p = v; return; }
