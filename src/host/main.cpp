@@ -2638,8 +2638,14 @@ static int run_game(int argc, char **argv, bool &quit_application)
 			[&](int d) { cfg.haptic_players = 1 + (cfg.haptic_players - 1 + d + 3) % 3; cfg_dirty = true; feedback.stop(pads); } });
 		pg.items.push_back({ "Test vibration", "Play a short test on the selected controller or phone fallback.", {}, {},
 			[&] { if (cfg.haptics) feedback.test(pads, cfg.haptic_players, cfg.haptic_strength); } });
-		pg.items.push_back({ "Save hit diagnostics", "After a missed post-KO impact, save scalar health-store observations to haptics-hit-diagnostics.csv in the app data folder.", {}, {},
-			[&] { finish_async(false); bool ok=m.haptic_probe.save((data + "/haptics-hit-diagnostics.csv").c_str()); fprintf(stderr,"haptics: diagnostic export %s\n",ok ? "saved" : "failed"); } });
+		pg.items.push_back({ "Record sound diagnostics", "Turn on to clear and record recent contact stores and candidate effect IDs. Turn off to retain them. Resets clear the recording.",
+			[&] { return m.haptic_sound_probe.active() ? "On" : "Off"; },
+			[&](int) { finish_async(false); m.haptic_sound_probe.capture(!m.haptic_sound_probe.active()); } });
+		pg.items.push_back({ "Save hit diagnostics", "Save health stores and the optional sound/contact recording as two CSV files in the app data folder.", {}, {},
+			[&] { finish_async(false);
+				bool hits=m.haptic_probe.save((data + "/haptics-hit-diagnostics.csv").c_str());
+				bool sound=m.haptic_sound_probe.save((data + "/haptics-sound-diagnostics.csv").c_str());
+				fprintf(stderr,"haptics: health export %s; sound export %s\n",hits ? "saved" : "failed",sound ? "saved" : "failed"); } });
 #endif
 		pg.items.push_back({ "Player 1", "Player 1's controller, keys and buttons.", [&] { return pad_name(0); }, {},
 							 [&] { menu.push(player_page(0)); } });

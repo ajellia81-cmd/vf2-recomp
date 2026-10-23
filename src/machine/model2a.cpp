@@ -572,6 +572,9 @@ void model2a::reset()
 	m_executing = -1;
 	m_in_callback = false;
 	m_frame_number = 0;
+#if defined(VF2_IOS)
+	haptic_sound_probe.clear(); // A reset restarts emulated time: never mix captures.
+#endif
 	m_intreq = m_intena = 0;
 	m_coproctl = m_coprocnt = m_geoctl = m_geocnt = 0;
 	m_ctrlmode = false;
@@ -1085,6 +1088,9 @@ void model2a::observe_energy_store(uint32_t a,uint32_t value,unsigned bytes)
   const bool full_word=a<=address[p] && a+bytes>=address[p]+2;
   if (vf2_contact_store(m_cpu.pip(),full_word,int16_t(old),int16_t(now),m_workram[0x2b])) {
    ++haptic_contact_total[p];
+   if(haptic_sound_probe.active()) haptic_sound_probe.contact(
+    uint64_t(time()/(AS_PER_SEC/1000000)),m_frame_number,m_cpu.pip(),p+1,
+    int16_t(old),int16_t(now),fight_energy_limit(),m_workram[0x2b],m_workram[0x31],m_workram[0x35]);
    if (int16_t(old)>int16_t(now)) haptic_damage_total[p]+=unsigned(int16_t(old)-int16_t(now));
   }
   haptic_probe.record(m_frame_number,m_cpu.pip(),p+1,int16_t(old),int16_t(now),m_workram[0x2b],m_workram[0x31],m_workram[0x35]);
@@ -2989,7 +2995,18 @@ struct model2a::snd_bus : m68000_bus
 		if (a >= 0x100000 && a < 0x101000) {
 			if (cpu.access_before_delay(1, &scsp_tag)) return;
 			if (m.on_68k_scsp_write) m.on_68k_scsp_write(a - 0x100000, data, mem_mask);
-			if (m.m_68k->pc() == 0x600a96 && (a & 0xffc1f) == 0) m.m_scsp->set_next_group((a >> 5) & 31, m.voice_group());
+			if (m.m_68k->pc() == 0x600a96 && (a & 0xffc1f) == 0) {
+#if defined(VF2_IOS)
+    if(m.haptic_sound_probe.active()) {
+     const u32 channel=m.m_68k->reg(8);
+     const bool direct=channel==0x40e0 && ((m.m_soundram[channel>>1]>>8)&1);
+     m.haptic_sound_probe.voice(uint64_t(m.time()/(AS_PER_SEC/1000000)),m.m_frame_number,
+      m.m_68k->pc(),channel,direct,m.m_68k->reg(2)&0xff,(a>>5)&31,
+      m.m_workram[0x2b],m.m_workram[0x31],m.m_workram[0x35]);
+    }
+#endif
+    m.m_scsp->set_next_group((a >> 5) & 31, m.voice_group());
+   }
 			m.m_scsp->write((a - 0x100000) >> 1, data, mem_mask);
 			return;
 		}

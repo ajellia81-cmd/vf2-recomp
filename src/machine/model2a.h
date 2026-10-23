@@ -17,6 +17,7 @@
 #pragma once
 #if defined(VF2_IOS)
 #include "combat_probe.h"
+#include "combat_sound_probe.h"
 #endif
 #include "../core/i960_device.h"
 #include "../core/mb86233.h"
@@ -39,6 +40,7 @@ class model2a : public mame_bus32
 public:
 #if defined(VF2_IOS)
 	combat_probe haptic_probe;
+	combat_sound_probe haptic_sound_probe;
 	uint64_t haptic_damage_total[2]{}, haptic_contact_total[2]{};
 #endif
 	static constexpr uint64_t CYCLES_PER_LINE = 1025;                  // 656 pixels at 16 MHz
