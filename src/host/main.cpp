@@ -2017,6 +2017,7 @@ static int run_game(int argc, char **argv, bool &quit_application)
 	SDL_Gamepad *pads[2] = { nullptr, nullptr };
 #if defined(VF2_IOS)
 	ios_fight_haptics feedback;
+	if (cfg.haptics) ios_haptics_prepare();
 #endif
 	bool &pads_swapped = cfg.pads_swapped; // two pads that look alike (same GUID): swapped by hand
 	auto guid_of = [](SDL_JoystickID id) {
@@ -2831,7 +2832,7 @@ static int run_game(int argc, char **argv, bool &quit_application)
 		if (!SDL_IsMainThread()) return; // UI lifecycle notifications originate on the main thread.
 		if (event.type == SDL_EVENT_WILL_ENTER_BACKGROUND || event.type == SDL_EVENT_TERMINATING) {
 			ios_background = true;
-			feedback.stop(pads);
+			feedback.stop(pads); ios_haptics_suspend();
 			ios_input_reset();
 			sync_menu_sound();
 			saver.flush();
