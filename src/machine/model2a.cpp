@@ -1,3 +1,6 @@
+#if defined(VF2_IOS)
+#include "../host/vf2_damage_events.h"
+#endif
 // license:BSD-3-Clause
 // copyright-holders:R. Belmont, Olivier Galibert, ElSemi, Angelo Salese, Matthew Daniels, Dirk Best, Aaron Giles, smf, Robbbert
 // Sega Model 2A-CRX board glue. Ported from MAME's sega/model2.cpp, model2_v.cpp (BSD-3-Clause,
@@ -1078,6 +1081,11 @@ void model2a::observe_energy_store(uint32_t a,uint32_t value,unsigned bytes)
   unsigned o=address[p]-0x500000,old=m_workram[o]|(m_workram[o+1]<<8),now=old;
   for(unsigned b=0;b<bytes;++b) if(a+b>=address[p] && a+b<=address[p]+1) {
    unsigned shift=(a+b-address[p])*8; now=(now&~(255u<<shift))|(((value>>(b*8))&255u)<<shift);
+  }
+  const bool full_word=a<=address[p] && a+bytes>=address[p]+2;
+  if (vf2_contact_store(m_cpu.pip(),full_word,int16_t(old),int16_t(now),m_workram[0x2b])) {
+   ++haptic_contact_total[p];
+   if (int16_t(old)>int16_t(now)) haptic_damage_total[p]+=unsigned(int16_t(old)-int16_t(now));
   }
   haptic_probe.record(m_frame_number,m_cpu.pip(),p+1,int16_t(old),int16_t(now),m_workram[0x2b],m_workram[0x31],m_workram[0x35]);
  }

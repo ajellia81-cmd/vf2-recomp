@@ -41,13 +41,25 @@ controller no longer creates native engines under SDL's joystick lock.
 This removes synchronous cold engine work from the rendering thread. Physical
 frame pacing and haptic timing must still be checked on the user's device.
 
-## Post-KO diagnostic limitation
+## Verified contact stores after KO (build 12)
 
-Health loss alone cannot identify a hit that leaves health unchanged. It must not
-be synthesized from an attack button or arbitrary animation. The app keeps a
-bounded ring of scalar stores to the documented health fields (including zero-to-zero),
-with frame, instruction address, side and scene flags. Controls > Save hit diagnostics
-exports haptics-hit-diagnostics.csv after the emulation worker has stopped.
-No file I/O occurs on the emulation/rendering hot path. No ROM bytes or memory dump
-is captured. Stores themselves are not assumed to be hits. Post-KO feedback remains
-unresolved until a contact signal and replay exclusion are verified.
+The user's build 11 scalar trace shows normal damage at guest PC 0x18A7C and
+zero-to-zero health stores from that same PC after KO (frame 2316: mode 9,
+round 17, live 0; frame 3089: mode 9, round 13, live 32). Setup/refill uses other
+PCs. Thus both frame-end health deltas and the old active-round gate miss these
+contacts. The iOS bus now counts complete health-field stores from 0x18A7C in
+human match mode 9. It records a positive damage total where available, and a
+contact total even for zero-to-zero writes. It never modifies game memory.
+
+The frame tracker consumes monotonic totals once per original frame, avoiding
+health/event double counting. Zero-damage contacts use a fixed light profile,
+not a guessed damage amount. Only positive-to-zero health transitions get the
+long KO tail. Player routing, gain, pause, menu and background cancellation stay.
+No stores from setup PCs, partial health stores or attract mode can emit feedback.
+
+After KO, contact-driven feedback continues while a fighter has zero health in
+match mode. The supplied scalar trace does not independently label replay scenes:
+match-mode replay contacts using the same verified store may also vibrate. No
+unverified scene flag is presented as a reliable replay exclusion. Broader move,
+scene and physical-device coverage still needs testing. VF1 uses its own independently
+observed pre-clamp store, not these addresses. No ROM bytes or disassembly are used.

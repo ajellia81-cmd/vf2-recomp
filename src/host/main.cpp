@@ -3033,7 +3033,7 @@ static int run_game(int argc, char **argv, bool &quit_application)
 		// inputs, its sound, the hotkeys (false: no more frames this pass, the menu opened or a restart)
 		auto frame_done = [&](bool last, bool &into, bool &held_now) -> bool {
 #if defined(VF2_IOS)
-			feedback.frame(vf2_haptic_snapshot(m.workram(), m.frame_number(), m.fight_energy_limit()), pads, cfg.haptics, ff || paused || menu.is_open() || ios_background, cfg.haptic_players, cfg.haptic_strength);
+			feedback.frame(vf2_haptic_snapshot(m.workram(), m.frame_number(), m.fight_energy_limit(), m.haptic_damage_total, m.haptic_contact_total), pads, cfg.haptics, ff || paused || menu.is_open() || ios_background, cfg.haptic_players, cfg.haptic_strength);
 #endif
 			if (test_ko.player && game_frame >= test_ko.from && game_frame <= test_ko.to && m.workram()[0x2b] == 9 && m.workram()[0x31] == 9) {
 				const u32 block = test_ko.player == 1 ? 0x510980 : 0x512980;   // (as vf2run's --ko)

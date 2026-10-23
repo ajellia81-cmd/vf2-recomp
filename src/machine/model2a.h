@@ -39,6 +39,7 @@ class model2a : public mame_bus32
 public:
 #if defined(VF2_IOS)
 	combat_probe haptic_probe;
+	uint64_t haptic_damage_total[2]{}, haptic_contact_total[2]{};
 #endif
 	static constexpr uint64_t CYCLES_PER_LINE = 1025;                  // 656 pixels at 16 MHz
 	static constexpr uint64_t LINES = 424, VBLANK_LINE = 384;
