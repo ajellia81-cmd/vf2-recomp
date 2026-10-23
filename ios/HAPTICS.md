@@ -54,7 +54,7 @@ human match mode 9. It records a positive damage total where available, and a
 contact total even for zero-to-zero writes. It never modifies game memory.
 
 The frame tracker consumes monotonic totals once per original frame, avoiding
-health/event double counting. Zero-damage contacts use a fixed light profile,
+health/event double counting. Zero-damage contacts use a fixed ordinary saturated-hit profile (build 13),
 not a guessed damage amount. Only positive-to-zero health transitions get the
 long KO tail. Player routing, gain, pause, menu and background cancellation stay.
 No stores from setup PCs, partial health stores or attract mode can emit feedback.
@@ -65,3 +65,22 @@ match-mode replay contacts using the same verified store may also vibrate. No
 unverified scene flag is presented as a reliable replay exclusion. Broader move,
 scene and physical-device coverage still needs testing. VF1 uses its own independently
 observed pre-clamp store, not these addresses. No ROM bytes or disassembly are used.
+
+
+## Build 13 post-KO intensity correction
+
+Build 12 used weight 0.4 for confirmed zero-damage contacts, versus the normal
+curve's maximum weight 1.0. This unintentionally weakened and shortened feedback
+when the game's clamp removed the damage value. Build 13 uses weight 1.0 for
+these contacts: the same profile as an ordinary hit dealing at least maximum/8.
+This is a chosen fallback, not a recovered damage measurement or a repeated KO.
+Measured damage still follows the continuous damage curve. No KO bonus is added
+when the victim was already at zero health. Player gain and routing remain active.
+
+At strength 75%, landed feedback changes from low/high 0.21/0.405 for 41 ms to
+0.39/0.675 for 65 ms; received feedback from 0.414/0.2625 for 64 ms to
+0.675/0.4875 for 100 ms. Phone intensity is max(low, high), so both roles change
+from 0.405/0.414 respectively to 0.675. Duration and amplitude are both corrected.
+Synthetic tests compare fallback contacts with ordinary saturated hits for both
+players, maxima 176/200/240 and strengths 0/25/75/100, including muted output and
+amplitude bounds. No physical-device feedback test is implied.

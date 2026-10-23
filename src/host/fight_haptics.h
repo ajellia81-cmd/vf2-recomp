@@ -47,8 +47,9 @@ public:
 				}
 				const bool contact = s.damage_events && s.contact_total[victim] > previous.contact_total[victim];
 				if (damage <= 0 && !contact) continue;
-				// No damage value survives VF2's post-KO clamp: use a fixed light profile.
-				const float weight = damage > 0 ? std::sqrt(std::clamp(8.0f * damage / s.maximum, 0.0f, 1.0f)) : 0.4f;
+				// No damage survives VF2's post-KO clamp. Use the ordinary saturated-hit
+				// profile, rather than attenuating contact feedback solely because health is zero.
+				const float weight = damage > 0 ? std::sqrt(std::clamp(8.0f * damage / s.maximum, 0.0f, 1.0f)) : 1.0f;
 				const bool ko = previous.health[victim] > 0 && s.health[victim] == 0;
 				Pulse received{(0.32f + 0.58f * weight) * gain, (0.15f + 0.50f * weight) * gain,
 					unsigned(40 + 60 * weight) + (ko ? 75u : 0u), ko};

@@ -28,5 +28,19 @@ int main() {
   w[0x2b]=9;assert(!t.advance(vf2_haptic_snapshot(w,7,176,damage,contacts),3,75)[0].ms);
   ++contacts[victim];s=vf2_haptic_snapshot(w,8,176,damage,contacts);auto muted=t.advance(s,3,0);assert(muted[0].low==0 && muted[1].high==0);
  }
+ // Missing post-KO damage uses the same pulse as an ordinary saturated hit
+ // (>= maximum/8), preserving gain, player roles and ordinary duration, not a KO tail.
+ for(int maximum : {176,200,240}) for(int gain : {0,25,75,100}) for(int victim=0;victim<2;++victim) {
+  Tracker normal,post;Snapshot a{1,0,true,{maximum,maximum},maximum,3};a.damage_events=true;
+  Snapshot b=a;b.health[victim]=0;normal.advance(a,3,gain);post.advance(b,3,gain);
+  ++a.frame;++b.frame;int damage=(maximum+7)/8;a.health[victim]-=damage;
+  a.damage_total[victim]=damage;++a.contact_total[victim];++b.contact_total[victim];
+  auto n=normal.advance(a,3,gain),p=post.advance(b,3,gain);
+  for(int player=0;player<2;++player) {
+   assert(n[player].low==p[player].low && n[player].high==p[player].high);
+   assert(n[player].ms==p[player].ms && !p[player].knockout);
+   assert(p[player].low<=1 && p[player].high<=1);
+  }
+ }
  puts("PASS: VF2 zero-health contacts, observed post-KO phases, routing, no duplicate/setup/attract/stale pulses");
 }
