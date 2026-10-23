@@ -20,7 +20,9 @@ and cinematic events are not inferred. Damage cheats may suppress or change feed
 ## Evidence and limits
 
 Read-only energy addresses and round gate come from tools/vf2run.cpp's existing KO
-check. scene_sync.h supplies the active-fight gate, excluding attract/intro/replay scenes.
+check. scene_sync.h supplies the original active-fight gate. The post-KO
+contact path described below relaxes that gate in match mode and cannot guarantee
+replay exclusion.
 The configured 1P/VS energy ceiling comes from model2a's existing backup settings.
 Player sides are chosen explicitly in Controls; human/CPU ownership is not inferred.
 
