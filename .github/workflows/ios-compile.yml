@@ -8,7 +8,7 @@ permissions:
   contents: read
 concurrency:
   group: ios-compile-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   interpreter:
     if: github.repository == 'ajellia81-cmd/vf2-recomp'
@@ -53,7 +53,7 @@ jobs:
           path: |
             ios/Dependencies/*.xcframework
             ios/build/licenses
-          key: ios-static-${{ runner.os }}-${{ steps.toolchain.outputs.key }}-${{ hashFiles('ios/Dependencies/versions.env', 'ios/Scripts/prepare-dependencies.sh') }}
+          key: ios-static-${{ runner.os }}-${{ steps.toolchain.outputs.key }}-${{ hashFiles('ios/Dependencies/versions.env', 'ios/Scripts/prepare-dependencies.sh', 'ios/Scripts/patch-sdl-haptics.py', 'ios/Scripts/ios_rumble_async.inc') }}
       - name: Prepare redistributable libraries only
         if: steps.dependencies.outputs.cache-hit != 'true'
         run: sh ios/Scripts/prepare-dependencies.sh
