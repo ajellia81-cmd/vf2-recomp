@@ -154,6 +154,8 @@
 #include "controls.h"
 #if defined(VF2_IOS)
 #include "ios_input.h"
+#include "ios_fight_haptics.h"
+#include "fight_haptics_vf2.h"
 #include "ios_platform.h"
 #include "ios_video_policy.h"
 #endif
@@ -555,6 +557,8 @@ struct settings
 	int pipelined_at = 0;
 	int ios_resolution = 0; // 0: 2868 x 1320; 1..MAX_SCALE: original integer render scales
 	int brightness = 100;
+	bool haptics = true;
+	int haptic_strength = 75, haptic_players = 1;
 	int secret = 0;   // Cheats > Secret character: the fighter in Akira's place (model2a::set_secret_character), 0 none
 	// settings.ini's version: 2 from v0.1.2 (none before). Its upgrades, once, as it's read:
 	//   2: the old default music volume, 20, to the new one, 50 (the music's stereo reverb mended:
@@ -596,6 +600,9 @@ struct settings
 		num("scale", scale, 0, MAX_SCALE);
 		num("ios_resolution", ios_resolution, 0, MAX_SCALE);
 		num("brightness", brightness, 50, 200);
+		flag("haptics", haptics);
+		num("haptic_strength", haptic_strength, 0, 100);
+		num("haptic_players", haptic_players, 1, 3);
 		num("picture_shape", aspect, 0, N_ASPECTS - 1);
 		num("volume", volume, 0, 100);
 		num("antialiasing", aa, 0, 3);   // 1 off, 0 Low (the 3D's edges smoothed: older builds read 0 as off), 2 and 3 drawn larger
@@ -662,6 +669,7 @@ struct settings
 		}
 		fprintf(f, "# Virtua Fighter 2 settings (the in-game menu writes these)\n");
 		fprintf(f, "settings_version = %d\n", version);
+		fprintf(f, "haptics = %d\nhaptic_strength = %d\nhaptic_players = %d\n", int(haptics), haptic_strength, haptic_players);
 		fprintf(f, "ios_resolution = %d\nbrightness = %d\npads_swapped = %d\n", ios_resolution, brightness, int(pads_swapped));
 		fprintf(f, "scale = %d\npicture_shape = %d\nfullscreen = %d\nframe_timings = %d\nvolume = %d\narcade_mode = %d\n"
 				"background_filter = %d\nmusic_volume = %d\neffects_volume = %d\nantialiasing = %d\nshow_fps = %d\nscreen_filter = %d\nring_size = %d\nsmooth_motion = %d\npipelined_at = %d\narcade_coins = %d\n", scale, aspect,
@@ -2007,6 +2015,9 @@ static int run_game(int argc, char **argv, bool &quit_application)
 	constexpr double QUEUED = 3.5;
 
 	SDL_Gamepad *pads[2] = { nullptr, nullptr };
+#if defined(VF2_IOS)
+	ios_fight_haptics feedback;
+#endif
 	bool &pads_swapped = cfg.pads_swapped; // two pads that look alike (same GUID): swapped by hand
 	auto guid_of = [](SDL_JoystickID id) {
 		char g[64];
@@ -2016,6 +2027,9 @@ static int run_game(int argc, char **argv, bool &quit_application)
 	// each player's pad: the one chosen (by its GUID) if it is there, else the next free one
 	// ("auto"), or none
 	auto open_pads = [&] {
+#if defined(VF2_IOS)
+		feedback.stop(pads);
+#endif
 		for (auto &pd : pads) if (pd) { SDL_CloseGamepad(pd); pd = nullptr; }
 		int n = 0;
 		SDL_JoystickID *ids = SDL_GetGamepads(&n);
@@ -2253,6 +2267,9 @@ static int run_game(int argc, char **argv, bool &quit_application)
 	// the arcade settings as their page opened (and the ring): see arcade_page
 	std::optional<std::array<int, 9>> assign_before;
 	auto reset_game = [&] {
+#if defined(VF2_IOS)
+		feedback.stop(pads);
+#endif
 		finish_async(false);
 		ahead = {};   // (a frame run during the last present: its picture not drawn)
 		shown_pic.reset();
@@ -2610,6 +2627,17 @@ static int run_game(int argc, char **argv, bool &quit_application)
 	};
 	auto controls_page = [&] {
 		menu_page pg{ "Controls", "", {} };
+#if defined(VF2_IOS)
+		pg.items.push_back({ "Vibration", "Impacts follow damage, with a longer finish on knockout.",
+			[&] { return cfg.haptics ? "On" : "Off"; }, [&](int) { cfg.haptics = !cfg.haptics; cfg_dirty = true; feedback.stop(pads); } });
+		pg.items.push_back({ "Vibration strength", "Overall intensity; does not change gameplay.", [&] { return std::to_string(cfg.haptic_strength) + "%"; },
+			[&](int d) { cfg.haptic_strength = std::clamp(cfg.haptic_strength + 10*d, 0, 100); cfg_dirty = true; } });
+		pg.items.push_back({ "Vibration players", "Choose who receives feedback. With Both, phone fallback follows player 1; controllers follow their assigned player.",
+			[&] { return cfg.haptic_players == 3 ? "Both" : cfg.haptic_players == 2 ? "Player 2" : "Player 1"; },
+			[&](int d) { cfg.haptic_players = 1 + (cfg.haptic_players - 1 + d + 3) % 3; cfg_dirty = true; feedback.stop(pads); } });
+		pg.items.push_back({ "Test vibration", "Play a short test on the selected controller or phone fallback.", {}, {},
+			[&] { if (cfg.haptics) feedback.test(pads, cfg.haptic_players, cfg.haptic_strength); } });
+#endif
 		pg.items.push_back({ "Player 1", "Player 1's controller, keys and buttons.", [&] { return pad_name(0); }, {},
 							 [&] { menu.push(player_page(0)); } });
 		pg.items.push_back({ "Player 2", "Player 2's controller, keys and buttons.", [&] { return pad_name(1); }, {},
@@ -2803,6 +2831,7 @@ static int run_game(int argc, char **argv, bool &quit_application)
 		if (!SDL_IsMainThread()) return; // UI lifecycle notifications originate on the main thread.
 		if (event.type == SDL_EVENT_WILL_ENTER_BACKGROUND || event.type == SDL_EVENT_TERMINATING) {
 			ios_background = true;
+			feedback.stop(pads);
 			ios_input_reset();
 			sync_menu_sound();
 			saver.flush();
@@ -2823,6 +2852,9 @@ static int run_game(int argc, char **argv, bool &quit_application)
 	if (!SDL_AddEventWatch(lifecycle_watch, &lifecycle)) return fail(SDL_GetError());
 #endif
 	while (running) {
+#if defined(VF2_IOS)
+		feedback.sync(pads, !cfg.haptics || paused || menu.is_open() || ios_background);
+#endif
 		const int64_t pass = passes++;
 		const pace_window pace0 = pace;
 		bool pass_cut = false;
@@ -2997,6 +3029,9 @@ static int run_game(int argc, char **argv, bool &quit_application)
 		// what follows a frame, here: scene sync, the picture to draw (into, held_now), the next frame's
 		// inputs, its sound, the hotkeys (false: no more frames this pass, the menu opened or a restart)
 		auto frame_done = [&](bool last, bool &into, bool &held_now) -> bool {
+#if defined(VF2_IOS)
+			feedback.frame(vf2_haptic_snapshot(m.workram(), m.frame_number(), m.fight_energy_limit()), pads, cfg.haptics, ff || paused || menu.is_open() || ios_background, cfg.haptic_players, cfg.haptic_strength);
+#endif
 			if (test_ko.player && game_frame >= test_ko.from && game_frame <= test_ko.to && m.workram()[0x2b] == 9 && m.workram()[0x31] == 9) {
 				const u32 block = test_ko.player == 1 ? 0x510980 : 0x512980;   // (as vf2run's --ko)
 				if (int16_t(m.peek32(block + 0x1ac)) > 0 && !(m.peek32(block) & 0x20)) {
@@ -3711,6 +3746,7 @@ static int run_game(int argc, char **argv, bool &quit_application)
 	}
 	finish_async(false);
 #if defined(VF2_IOS)
+	feedback.stop(pads); ios_haptics_shutdown();
 	SDL_RemoveEventWatch(lifecycle_watch, &lifecycle);
 #endif
 	saver.finish();   // (an autosave still being written, done before the last save: the same files)

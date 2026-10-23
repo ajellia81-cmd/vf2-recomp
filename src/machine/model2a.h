@@ -252,6 +252,7 @@ public:
 	// both players after a versus match (0: the winner plays on).
 	enum class game_assignment { match_1p, match_vs, difficulty, advertise_sound, continues, version, vs_finish };
 	int assignment(game_assignment a) const;
+	int fight_energy_limit() const; // Read-only ceiling of the configured 1P/VS energy.
 	bool set_assignment(game_assignment a, int v);
 	// The ring's width (1300-1600) whatever the difficulty, or 0 for the arcade's (by difficulty:
 	// 1600 on EASY down to 1300 on HARDEST, the test mode's STAGE WIDTH). Written into the

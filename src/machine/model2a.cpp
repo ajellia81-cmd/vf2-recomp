@@ -334,6 +334,14 @@ int model2a::assignment(game_assignment a) const
 	return std::clamp(int(v), s.lo, s.hi);
 }
 
+int model2a::fight_energy_limit() const
+{
+	if (m_backup.size() <= SETTINGS + 0x55) return 0;
+	const int solo = m_backup[SETTINGS + 0x52] | (m_backup[SETTINGS + 0x53] << 8);
+	const int versus = m_backup[SETTINGS + 0x54] | (m_backup[SETTINGS + 0x55] << 8);
+	return std::max(solo, versus);
+}
+
 bool model2a::set_assignment(game_assignment a, int v)
 {
 	const int now = assignment(a);
