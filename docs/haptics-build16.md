@@ -27,3 +27,16 @@ post-KO feedback is fixed maximum as requested. Packaging verifies that diagnost
 UI/export strings and recorder symbols are absent from the executable. The IPA is
 personal/unsigned; no public Release is created. Rendering, controls, saved
 vibration enable/strength/player settings and warmup/lifecycle are preserved.
+
+## Completed Apple validation
+
+Workflow https://github.com/ajellia81-cmd/vf2-recomp/actions/runs/40061384317 succeeded.
+All configured regression tests, iPhone compilation, simulator document-import
+tests, package verification and upload passed. VF3 also passed simulator app
+compilation. VF2 package checks include absent diagnostic UI/export strings and
+recorder symbols. No physical-device gameplay or vibration test was performed.
+IPA SHA-256 (runner): e14d832c8af7ba35c36d72bbf46bcecee63e4bf8a5ca3e71e58469d2fccf253e
+Artifact ID: 12547760748
+Wrapper SHA-256 (artifact API): 813ed96c4ba1412ef38a54d3989b4040a3fd8c6d1b4afbf56b5e6fb9a81747e9
+Download: https://github.com/ajellia81-cmd/vf2-recomp/actions/runs/40061384317/artifacts/12547760748
+These digests were reported remotely; no independent archive download was performed.
