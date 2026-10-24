@@ -44,3 +44,21 @@ no physical gameplay, perceived strength or ROM import test is implied.
 
 Match-mode replay contacts may still vibrate, as documented previously.
 No ROMs, audio samples or program data are included.
+
+## Completed Apple validation
+
+Personal IPA workflow run 40059599917 (Run #20), source
+5860c9377f0155b099df5c07acbe569888415b86, passed haptic regression tests
+(including the ASan/UBSan impact-sound test), controller warmup, native Metal,
+display/controls and touch-menu tests, unsigned iPhone compilation and both
+simulator document-import tests. Packaging checks verified bundle version 15,
+arm64, no SLJIT symbols, no signing profile or game archives and ZIP integrity.
+No physical device feedback/gameplay test was performed.
+
+IPA SHA-256: 08ed3df6670c2aba7d96bc9496ff6ea65438b70f2e855a72499eb4ed389e15cb
+Artifact ID: 12547022246
+Wrapper SHA-256: 541d265d7bda7b251723db13c466302fc9443fda35d901de663cf2bda3291b04
+Download: https://github.com/ajellia81-cmd/vf2-recomp/actions/runs/40059599917/artifacts/12547022246
+
+Digests above are reported by the runner and artifact API; the archive was not
+independently downloaded here.
