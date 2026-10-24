@@ -13,7 +13,7 @@ build = root / 'ios/build'
 app = build / 'device/Build/Products/Release-iphoneos/Virtua Fighter 2 Recomp.app'
 with (app / 'Info.plist').open('rb') as f:
     info = plistlib.load(f)
-assert info['CFBundleVersion'] == '14'
+assert info['CFBundleVersion'] == '15'
 assert info['CFBundleIdentifier'] == 'com.ajellia81.vf2recomp'
 assert info['CFBundleSupportedPlatforms'] == ['iPhoneOS']
 assert info.get('CADisableMinimumFrameDurationOnPhone') is True
@@ -61,9 +61,12 @@ sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True)
     'source_commit': sha, 'execution': 'interpreter-only', 'battle_render_size': [2868, 1320], 'selectable_integer_scales': [1, 2, 3, 4, 5, 6], 'brightness_range_percent': [50, 200],
     'signed': False, 'roms_included': False, 'purpose': 'personal use; re-sign before installation',
     'gameplay_device_tested': False, 'sound_contact_diagnostics_schema': 1,
-    'post_ko_sound_strength_mapping': False,
+    'post_ko_sound_strength_mapping': True,
+    'lethal_hit_sound_strength_mapping': True,
+    'impact_sound_window_us': 8000,
+    'unknown_or_ambiguous_sound_fallback': True,
 }, indent=2) + '\n')
-ipa = out / 'VirtuaFighter2-build14-unsigned.ipa'
+ipa = out / 'VirtuaFighter2-build15-unsigned.ipa'
 subprocess.run(['ditto', '-c', '-k', '--sequesterRsrc', '--keepParent', 'Payload', ipa.name], cwd=out, check=True)
 with zipfile.ZipFile(ipa) as z:
     assert z.testzip() is None

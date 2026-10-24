@@ -85,7 +85,7 @@ Synthetic tests compare fallback contacts with ordinary saturated hits for both
 players, maxima 176/200/240 and strengths 0/25/75/100, including muted output and
 amplitude bounds. No physical-device feedback test is implied.
 
-## Sound/contact scalar calibration (diagnostic capture, no sound strength map yet)
+## Build 14 sound/contact scalar calibration (historical diagnostic workflow)
 
 The existing channel grouping exposes channel 14 (hits **and swishes**) at the
 68000 voice-start request, PC `0x600a96`. A0 selects the channel entry and D2's
@@ -132,3 +132,11 @@ moves of different strengths, so any mapping will be an estimate with a fallback
 for unknown/ambiguous cases. The analyzer generates no runtime strength table.
 Linux synthetic tests validate capture bounds, exclusions, zero stores and
 conservative association rules, not actual VF2 sound meanings or device timing.
+
+## Build 15 sound estimates
+
+Build15 enables matched effect estimates for KO and post-KO contacts. The original
+contact-store event remains mandatory. See docs/haptics-build15.md for the causal
+8 ms window, approximate strength categories, wider inferred-strength curve,
+unknown/ambiguous fallbacks and physical-testing limits. Recording is optional;
+turning diagnostic capture off does not disable runtime sound matching.

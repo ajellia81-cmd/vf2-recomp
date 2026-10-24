@@ -45,7 +45,7 @@ public:
 	vf2_impact_sound haptic_impact_sound;
 	int haptic_contact_estimate[2]{};
 	void resolve_haptic_contacts(bool blocked);
-	uint64_t haptic_damage_total[2]{}, haptic_contact_total[2]{};
+	uint64_t haptic_damage_total[2]{}, haptic_contact_total[2]{}, haptic_knockout_total[2]{};
 #endif
 	static constexpr uint64_t CYCLES_PER_LINE = 1025;                  // 656 pixels at 16 MHz
 	static constexpr uint64_t LINES = 424, VBLANK_LINE = 384;

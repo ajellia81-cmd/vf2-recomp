@@ -1081,6 +1081,7 @@ u8 model2a::read_byte(offs_t a)
 #if defined(VF2_IOS)
 void model2a::resolve_haptic_contacts(bool blocked)
 {
+ haptic_contact_estimate[0]=haptic_contact_estimate[1]=0;
  if(blocked || m_workram[0x2b]!=9) { haptic_impact_sound.clear(); return; }
  const auto batch=haptic_impact_sound.take(uint64_t(time()/(AS_PER_SEC/1000000)));
  const unsigned fields[2]={0x10b2c,0x12b2c};
@@ -1088,6 +1089,8 @@ void model2a::resolve_haptic_contacts(bool blocked)
   const unsigned a=fields[p];
   if((m_workram[a]|(m_workram[a+1]<<8))!=0)continue; // refill cancels pending post-KO contacts
   haptic_contact_total[p]+=batch.count[p];
+   haptic_damage_total[p]+=batch.damage[p];
+   haptic_knockout_total[p]+=batch.knockouts[p];
   haptic_contact_estimate[p]=batch.estimate[p];
  }
 }
@@ -1105,13 +1108,14 @@ void model2a::observe_energy_store(uint32_t a,uint32_t value,unsigned bytes)
   const bool full_word=a<=address[p] && a+bytes>=address[p]+2;
   if (vf2_contact_store(m_cpu.pip(),full_word,int16_t(old),int16_t(now),m_workram[0x2b])) {
    const uint64_t us=uint64_t(time()/(AS_PER_SEC/1000000));
-   const bool post=int16_t(old)==0 && int16_t(now)==0;
-   haptic_impact_sound.contact(us,p,post);
-   if(!post)++haptic_contact_total[p];
+   const bool deferred=int16_t(now)==0;
+   const bool knockout=int16_t(old)>0 && int16_t(now)==0;
+   const int damage=std::max(0,int(int16_t(old))-int(int16_t(now)));
+   haptic_impact_sound.contact(us,p,deferred,knockout,damage);
+   if(!deferred) { ++haptic_contact_total[p]; haptic_damage_total[p]+=unsigned(damage); }
    if(haptic_sound_probe.active()) haptic_sound_probe.contact(
     uint64_t(time()/(AS_PER_SEC/1000000)),m_frame_number,m_cpu.pip(),p+1,
     int16_t(old),int16_t(now),fight_energy_limit(),m_workram[0x2b],m_workram[0x31],m_workram[0x35]);
-   if (int16_t(old)>int16_t(now)) haptic_damage_total[p]+=unsigned(int16_t(old)-int16_t(now));
   }
   haptic_probe.record(m_frame_number,m_cpu.pip(),p+1,int16_t(old),int16_t(now),m_workram[0x2b],m_workram[0x31],m_workram[0x35]);
  }

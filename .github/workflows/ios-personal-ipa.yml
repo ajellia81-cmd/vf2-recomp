@@ -85,6 +85,8 @@ jobs:
           ios/build/haptics-adapter
           xcrun clang++ -std=c++20 -O2 -Wall -Wextra -Werror tools/checks/vf2_damage_events.cpp -o ios/build/damage-events
           ios/build/damage-events
+          xcrun clang++ -std=c++20 -O2 -Wall -Wextra -Werror -fsanitize=address,undefined tools/checks/vf2_impact_sound.cpp -o ios/build/impact-sound
+          ios/build/impact-sound
       - name: Verify touch Menu transitions without game data
         run: |
           xcrun clang++ -std=c++20 -O2 -I"$(brew --prefix sdl3)/include" tools/checks/touch_menu.cpp -o ios/build/touch-menu
@@ -110,9 +112,9 @@ jobs:
         run: python3 ios/Scripts/package-personal-ipa.py
       - uses: actions/upload-artifact@v4
         with:
-          name: VirtuaFighter2-build14-${{ github.sha }}
-          path: ios/build/personal/VirtuaFighter2-build14-unsigned.ipa
+          name: VirtuaFighter2-build15-${{ github.sha }}
+          path: ios/build/personal/VirtuaFighter2-build15-unsigned.ipa
           if-no-files-found: error
           retention-days: 3
           compression-level: 0
-# Trigger build after remote sound/contact analysis.
+# Build 15: matched effect estimates for lethal and post-KO contacts.

@@ -2,11 +2,12 @@
 #include "fight_haptics.h"
 #include <vector>
 // Read-only work RAM: tools/vf2run.cpp KO checks and scene_sync.h fight gate.
-inline fight_haptics::Snapshot vf2_haptic_snapshot(const std::vector<uint8_t> &work, uint64_t frame, int maximum, const uint64_t *damage_total=nullptr, const uint64_t *contact_total=nullptr, const int *contact_estimate=nullptr) {
+inline fight_haptics::Snapshot vf2_haptic_snapshot(const std::vector<uint8_t> &work, uint64_t frame, int maximum, const uint64_t *damage_total=nullptr, const uint64_t *contact_total=nullptr, const int *contact_estimate=nullptr, const uint64_t *knockout_total=nullptr) {
  fight_haptics::Snapshot s; s.frame = frame;
  if (work.size() < 0x12b2e) return s;
  auto word = [&](unsigned a) { return work[a] | (work[a+1] << 8); };
  s.maximum = maximum;
+ if(knockout_total) { s.knockout_events=true; for(int p=0;p<2;++p)s.knockout_total[p]=knockout_total[p]; }
  if (damage_total && contact_total) {
   s.damage_events=true;
   for(int p=0;p<2;++p) { s.damage_total[p]=damage_total[p]; s.contact_total[p]=contact_total[p]; s.contact_estimate[p]=contact_estimate ? contact_estimate[p] : 0; }

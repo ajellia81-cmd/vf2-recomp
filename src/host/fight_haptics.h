@@ -13,6 +13,8 @@ struct Snapshot {
 	bool damage_events = false;
 	uint64_t damage_total[2]{}, contact_total[2]{};
 	int contact_estimate[2]{}; // optional sound estimate; never measured damage
+	bool knockout_events=false;
+	uint64_t knockout_total[2]{};
 };
 struct Pulse {
 	float low = 0, high = 0;
@@ -37,7 +39,7 @@ public:
 		for (int hp : s.health) valid &= hp >= 0 && hp <= s.maximum;
 		if (!valid) { reset(); return out; }
 		if (ready && s.frame == previous.frame) return out;
-		const bool continuous = ready && s.frame == previous.frame + 1 && s.epoch == previous.epoch && s.maximum == previous.maximum && s.damage_events == previous.damage_events;
+		const bool continuous = ready && s.frame == previous.frame + 1 && s.epoch == previous.epoch && s.maximum == previous.maximum && s.damage_events == previous.damage_events && s.knockout_events == previous.knockout_events;
 		if (continuous && s.health[0] <= previous.health[0] && s.health[1] <= previous.health[1]) {
 			const float gain = std::clamp(strength, 0, 100) / 100.0f;
 			for (int victim = 0; victim < 2; ++victim) {
@@ -48,12 +50,16 @@ public:
 				}
 				const bool contact = s.damage_events && s.contact_total[victim] > previous.contact_total[victim];
 				if (damage <= 0 && !contact) continue;
-				// Measured damage always wins. Only an existing zero-health contact may
-				// use an estimate; unknown sounds keep the build-13 saturated fallback.
+				// Ordinary damage is unchanged. At zero health, HP loss is clipped: use
+				// a matched estimate with measured loss as its lower bound. Never emit
+				// from a sound alone. Missing estimates preserve measured/fixed fallback.
 				const int estimate=(contact && s.health[victim]==0) ? std::clamp(s.contact_estimate[victim],0,1000) : 0;
-				const int magnitude=damage>0 ? damage : estimate;
-				const float weight = magnitude > 0 ? std::sqrt(std::clamp(8.0f * magnitude / s.maximum, 0.0f, 1.0f)) : 1.0f;
-				const bool ko = previous.health[victim] > 0 && s.health[victim] == 0;
+				const int magnitude=std::max(damage,estimate);
+				// A broader range for inferred impacts keeps medium/strong sounds distinct;
+				// the legacy ordinary measured-damage curve remains untouched.
+				const float scale=estimate>0 ? 4.0f : 8.0f;
+				const float weight = magnitude > 0 ? std::sqrt(std::clamp(scale * magnitude / s.maximum, 0.0f, 1.0f)) : 1.0f;
+				const bool ko = s.knockout_events ? s.knockout_total[victim]>previous.knockout_total[victim] : previous.health[victim] > 0 && s.health[victim] == 0;
 				Pulse received{(0.32f + 0.58f * weight) * gain, (0.15f + 0.50f * weight) * gain,
 					unsigned(40 + 60 * weight) + (ko ? 75u : 0u), ko};
 				Pulse landed{(0.12f + 0.40f * weight) * gain, (0.30f + 0.60f * weight) * gain,
