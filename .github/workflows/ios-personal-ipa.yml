@@ -115,3 +115,4 @@ jobs:
           if-no-files-found: error
           retention-days: 3
           compression-level: 0
+# Trigger build after remote sound/contact analysis.
