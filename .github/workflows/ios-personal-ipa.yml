@@ -112,9 +112,9 @@ jobs:
         run: python3 ios/Scripts/package-personal-ipa.py
       - uses: actions/upload-artifact@v4
         with:
-          name: VirtuaFighter2-build15-${{ github.sha }}
-          path: ios/build/personal/VirtuaFighter2-build15-unsigned.ipa
+          name: VirtuaFighter2-build16-clean-${{ github.sha }}
+          path: ios/build/personal/VirtuaFighter2-build16-clean-unsigned.ipa
           if-no-files-found: error
           retention-days: 3
           compression-level: 0
-# Build 15: matched effect estimates for lethal and post-KO contacts.
+# Build 16: fixed maximum post-KO intensity by user request.

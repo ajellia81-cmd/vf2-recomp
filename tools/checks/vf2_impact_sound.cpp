@@ -7,7 +7,7 @@ int main() {
  vf2_impact_sound s;
  s.voice(10,1);assert(!s.take(10000).count[0]); // sound alone is silent
  for(unsigned note:{1u,3u,0x25u,0x24u,2u,0x1eu,0x2au,0xffu}) {
-  s.clear();s.contact(100,0,true);s.voice(1400,note);
+  s.clear();s.contact(100,0,true,true,3);s.voice(1400,note);
   assert(!s.take(8100).count[0]);
   auto b=s.take(8101);assert(b.count[0]==1 && b.estimate[0]==s.estimate_damage(int(note)));
   assert(!s.take(20000).count[0]);
@@ -48,10 +48,21 @@ int main() {
   };
   for(bool lethal:{false,true}) {
    auto light=impact(1,lethal),medium=impact(0x25,lethal),heavy=impact(0x24,lethal);
-   if(gain) for(int p=0;p<2;++p) {
+   if(gain && lethal) for(int p=0;p<2;++p) {
     assert(light[p].low<medium[p].low && medium[p].low<heavy[p].low);
     assert(light[p].high<medium[p].high && medium[p].high<heavy[p].high);
     assert(light[p].ms<medium[p].ms && medium[p].ms<heavy[p].ms);
+   }
+   if(!lethal) for(unsigned note:{1u,3u,0x25u,0x24u,0xffu,0x22u,256u}) {
+    auto fixed=impact(note,false);
+    for(int p=0;p<2;++p) {
+     assert(fixed[p].low==heavy[p].low && fixed[p].high==heavy[p].high && fixed[p].ms==heavy[p].ms);
+     const bool received=p==victim;
+     const float factor=gain/100.0f;
+     assert(std::abs(fixed[p].low-(received?0.90f:0.52f)*factor)<0.000001f);
+     assert(std::abs(fixed[p].high-(received?0.65f:0.90f)*factor)<0.000001f);
+     assert(fixed[p].ms==(received?100u:65u));
+    }
    }
    for(int p=0;p<2;++p)assert(heavy[p].low<=1 && heavy[p].high<=1);
    if(!gain)assert(light[0].low==0 && heavy[1].high==0);
@@ -75,5 +86,5 @@ int main() {
  std::vector<uint8_t> work(0x30000);work[0x2b]=9;work[0x31]=13;work[0x35]=32;
  uint64_t ko[2]={1,0};auto adapted=vf2_haptic_snapshot(work,5,220,nullptr,nullptr,nullptr,ko);
  assert(adapted.knockout_events && adapted.knockout_total[0]==1 && adapted.live==false);
- puts("PASS: sound-only silence, bounded causal association, delayed KO/post-KO intensity, ordinary-hit parity and routing");
+ puts("PASS: sound-only silence, bounded causal association, lethal estimation and fixed maximum post-KO intensity, ordinary-hit parity and routing");
 }

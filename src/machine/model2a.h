@@ -16,8 +16,6 @@
 // 16 MHz pixels, 656 x 424 per frame, vblank from line 384.
 #pragma once
 #if defined(VF2_IOS)
-#include "combat_probe.h"
-#include "combat_sound_probe.h"
 #include "vf2_impact_sound.h"
 #endif
 #include "../core/i960_device.h"
@@ -40,8 +38,6 @@ class model2a : public mame_bus32
 {
 public:
 #if defined(VF2_IOS)
-	combat_probe haptic_probe;
-	combat_sound_probe haptic_sound_probe;
 	vf2_impact_sound haptic_impact_sound;
 	int haptic_contact_estimate[2]{};
 	void resolve_haptic_contacts(bool blocked);

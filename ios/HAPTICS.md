@@ -140,3 +140,13 @@ contact-store event remains mandatory. See docs/haptics-build15.md for the causa
 8 ms window, approximate strength categories, wider inferred-strength curve,
 unknown/ambiguous fallbacks and physical-testing limits. Recording is optional;
 turning diagnostic capture off does not disable runtime sound matching.
+
+## Build 16: fixed strongest post-KO response
+
+The user reported the sound-based post-KO strengths felt reversed and requested
+one strongest response for every contact after KO. Build16 disables inferred
+strength for zero-to-zero post-KO contacts. All sound IDs, unknown/missing or
+ambiguous requests use the ordinary saturated profile (weight 1), with configured
+gain/player routing preserved and no repeated KO tail. Ordinary hits and build15's
+decisive positive-to-zero KO handling are unchanged. This supersedes build15's
+variable post-KO estimates. Physical feel still needs the user's confirmation.

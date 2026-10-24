@@ -575,7 +575,6 @@ void model2a::reset()
 #if defined(VF2_IOS)
 	haptic_impact_sound.clear();
 	haptic_contact_estimate[0]=haptic_contact_estimate[1]=0;
-	haptic_sound_probe.clear(); // A reset restarts emulated time: never mix captures.
 #endif
 	m_intreq = m_intena = 0;
 	m_coproctl = m_coprocnt = m_geoctl = m_geocnt = 0;
@@ -1113,11 +1112,7 @@ void model2a::observe_energy_store(uint32_t a,uint32_t value,unsigned bytes)
    const int damage=std::max(0,int(int16_t(old))-int(int16_t(now)));
    haptic_impact_sound.contact(us,p,deferred,knockout,damage);
    if(!deferred) { ++haptic_contact_total[p]; haptic_damage_total[p]+=unsigned(damage); }
-   if(haptic_sound_probe.active()) haptic_sound_probe.contact(
-    uint64_t(time()/(AS_PER_SEC/1000000)),m_frame_number,m_cpu.pip(),p+1,
-    int16_t(old),int16_t(now),fight_energy_limit(),m_workram[0x2b],m_workram[0x31],m_workram[0x35]);
   }
-  haptic_probe.record(m_frame_number,m_cpu.pip(),p+1,int16_t(old),int16_t(now),m_workram[0x2b],m_workram[0x31],m_workram[0x35]);
  }
 #else
  (void)a;(void)value;(void)bytes;
@@ -3025,10 +3020,6 @@ struct model2a::snd_bus : m68000_bus
      const u32 channel=m.m_68k->reg(8);
      const bool direct=channel==0x40e0 && ((m.m_soundram[channel>>1]>>8)&1);
      if(direct) m.haptic_impact_sound.voice(uint64_t(m.time()/(AS_PER_SEC/1000000)),m.m_68k->reg(2)&0xff);
-     if(m.haptic_sound_probe.active())
-     m.haptic_sound_probe.voice(uint64_t(m.time()/(AS_PER_SEC/1000000)),m.m_frame_number,
-      m.m_68k->pc(),channel,direct,m.m_68k->reg(2)&0xff,(a>>5)&31,
-      m.m_workram[0x2b],m.m_workram[0x31],m.m_workram[0x35]);
     }
 #endif
     m.m_scsp->set_next_group((a >> 5) & 31, m.voice_group());

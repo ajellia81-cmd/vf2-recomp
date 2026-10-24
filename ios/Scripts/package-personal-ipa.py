@@ -13,7 +13,7 @@ build = root / 'ios/build'
 app = build / 'device/Build/Products/Release-iphoneos/Virtua Fighter 2 Recomp.app'
 with (app / 'Info.plist').open('rb') as f:
     info = plistlib.load(f)
-assert info['CFBundleVersion'] == '15'
+assert info['CFBundleVersion'] == '16'
 assert info['CFBundleIdentifier'] == 'com.ajellia81.vf2recomp'
 assert info['CFBundleSupportedPlatforms'] == ['iPhoneOS']
 assert info.get('CADisableMinimumFrameDurationOnPhone') is True
@@ -24,6 +24,14 @@ exe = app / info['CFBundleExecutable']
 assert subprocess.check_output(['xcrun', 'lipo', '-archs', str(exe)], text=True).strip() == 'arm64'
 symbols = subprocess.check_output(['xcrun', 'nm', str(exe)], text=True)
 assert 'sljit_' not in symbols, 'JIT symbols must never enter the iOS package'
+
+# Ensure the shipped executable has no diagnostic UI, CSV export or recorders.
+binary = exe.read_bytes()
+for marker in (b'Save hit diagnostics', b'Record sound diagnostics', b'Test vibration',
+               b'haptics-hit-diagnostics.csv', b'haptics-sound-diagnostics.csv'):
+    assert marker not in binary, f'Diagnostic feature remains: {marker!r}'
+assert 'combat_probe' not in symbols and 'combat_sound_probe' not in symbols
+
 for file in app.rglob('*'):
     assert file.suffix.lower() not in {'.zip', '.bin', '.rom', '.ipa'}, f'Unexpected game/archive data: {file}'
     assert file.name != 'embedded.mobileprovision', 'Personal signing happens after download'
@@ -60,13 +68,14 @@ sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True)
 (staged / 'BUILD-INFO.json').write_text(json.dumps({
     'source_commit': sha, 'execution': 'interpreter-only', 'battle_render_size': [2868, 1320], 'selectable_integer_scales': [1, 2, 3, 4, 5, 6], 'brightness_range_percent': [50, 200],
     'signed': False, 'roms_included': False, 'purpose': 'personal use; re-sign before installation',
-    'gameplay_device_tested': False, 'sound_contact_diagnostics_schema': 1,
-    'post_ko_sound_strength_mapping': True,
+    'gameplay_device_tested': False, 'diagnostic_features': False,
+    'post_ko_sound_strength_mapping': False,
+    'post_ko_intensity': 'maximum ordinary impact; respects configured gain',
     'lethal_hit_sound_strength_mapping': True,
     'impact_sound_window_us': 8000,
     'unknown_or_ambiguous_sound_fallback': True,
 }, indent=2) + '\n')
-ipa = out / 'VirtuaFighter2-build15-unsigned.ipa'
+ipa = out / 'VirtuaFighter2-build16-clean-unsigned.ipa'
 subprocess.run(['ditto', '-c', '-k', '--sequesterRsrc', '--keepParent', 'Payload', ipa.name], cwd=out, check=True)
 with zipfile.ZipFile(ipa) as z:
     assert z.testzip() is None

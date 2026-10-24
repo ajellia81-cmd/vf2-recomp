@@ -20,7 +20,9 @@ private:
  Batch ready{};
  void finish(const Contact &c, bool overflow=false) {
   if(!c.post)return;
-  const int estimate=(!overflow && !c.ambiguous && c.voices==1) ? estimate_damage(c.note) : 0;
+  // User choice: all post-KO contacts use the strongest ordinary profile.
+  // Only the decisive lethal hit may still use the build15 sound estimate.
+  const int estimate=(c.knockout && !overflow && !c.ambiguous && c.voices==1) ? estimate_damage(c.note) : 0;
   ++ready.count[c.player];
   ready.knockouts[c.player] += c.knockout;
   ready.damage[c.player] += unsigned(std::clamp(c.damage,0,1000));
